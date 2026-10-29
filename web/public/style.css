@@ -5,6 +5,7 @@
   --pic: #eef0f4;
   --mut: #59606b;
   --bd: #d3d8df;
+  /* couleurs d'état : le texte posé dessus est en var(--bg) (contraste ≥ 4,5 dans les deux thèmes) */
   --ok: #1f7a43;
   --miss: #b8402d;
   --chk: #8a5d00;
@@ -269,7 +270,7 @@ a {
   height: 26px;
   border-radius: 50%;
   background: var(--ok);
-  color: #fff;
+  color: var(--bg);
   font-weight: 700;
   box-shadow: 0 1px 4px #0008;
 }
@@ -557,7 +558,7 @@ ul.versions {
 .chip.deal {
   border-color: transparent;
   background: var(--ok);
-  color: #fff;
+  color: var(--bg);
 }
 button.link {
   min-height: 0;
@@ -571,7 +572,7 @@ button.link {
 button.primary {
   border-color: var(--ok);
   background: var(--ok);
-  color: #fff;
+  color: var(--bg);
 }
 .acts {
   display: flex;
@@ -837,7 +838,7 @@ dialog.viewer::backdrop {
 }
 .toast.err {
   background: var(--miss);
-  color: #fff;
+  color: var(--bg);
 }
 
 @media (max-width: 640px) {
@@ -954,4 +955,99 @@ dialog.viewer::backdrop {
   .shine {
     display: none;
   }
+}
+
+/* Alertes de prix : cloche sur la tuile, pastille dans la fiche, petit formulaire replié */
+.bell {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--card);
+  font-size: 0.8rem;
+  box-shadow: 0 1px 4px #0008;
+}
+.chip.alert {
+  border-color: var(--chk);
+  color: var(--chk);
+}
+.chip.alert.hit {
+  border-color: transparent;
+  background: var(--chk);
+  color: var(--bg);
+}
+details.alert-d {
+  flex: 1 1 100%;
+}
+details.alert-d summary {
+  width: fit-content;
+  color: var(--keep);
+  font-size: 0.82rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+details.alert-d .row {
+  justify-content: flex-end;
+  margin: 4px 0;
+}
+details.alert-d label {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+}
+details.alert-d input {
+  width: 6em;
+}
+
+/* Ajouter une version : planche de miniatures TCGdex */
+details.addv {
+  margin: 12px 0;
+}
+.cands ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+button.cand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  padding: 4px;
+  font-size: 0.7rem;
+}
+button.cand img {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 5 / 7;
+  border-radius: 4px;
+  background: var(--pic);
+}
+button.cand .mut {
+  overflow: hidden;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Hors ligne : bandeau sous la progression */
+.offline {
+  margin: 6px 0 0;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--chk);
+  color: var(--bg);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+button.cand .ph {
+  aspect-ratio: 5 / 7;
 }

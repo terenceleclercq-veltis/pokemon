@@ -8,7 +8,7 @@ export interface Species {
 }
 
 export async function loadAll(db: D1Database) {
-  const [sp, cards, owned, keep, prices, wish, excluded, orders] = await db.batch([
+  const [sp, cards, owned, keep, prices, wish, excluded, orders, alerts] = await db.batch([
     db.prepare("SELECT num, nom_fr, nom_en FROM species ORDER BY num"),
     db.prepare("SELECT * FROM cards ORDER BY species_num, tier, id"),
     db.prepare("SELECT * FROM owned"),
@@ -17,6 +17,7 @@ export async function loadAll(db: D1Database) {
     db.prepare("SELECT species_num, card_id FROM wish"),
     db.prepare("SELECT card_id FROM excluded"),
     db.prepare("SELECT * FROM purchase WHERE state = 'commandee' ORDER BY ordered_at"),
+    db.prepare("SELECT card_id, max_price FROM alert"),
   ]);
   return {
     species: (sp?.results ?? []) as Species[],
@@ -27,6 +28,7 @@ export async function loadAll(db: D1Database) {
     wish: (wish?.results ?? []) as { species_num: number; card_id: string }[],
     excluded: (excluded?.results ?? []) as { card_id: string }[],
     orders: (orders?.results ?? []) as Purchase[],
+    alerts: (alerts?.results ?? []) as { card_id: string; max_price: number }[],
   };
 }
 
@@ -43,7 +45,10 @@ export const cardById = (db: D1Database, id: string) =>
     tier: Tier;
   }>();
 
-/** Cartes à surveiller : espèces manquantes, ou possédées avec version plus rare et sans décision. Plus anciens prix d'abord. */
+/**
+ * Cartes à surveiller : espèces manquantes, possédées avec version plus rare et sans décision, ou sous alerte de prix.
+ * Plus anciens prix d'abord.
+ */
 export const staleWatchlist = (db: D1Database, limit: number) =>
   db
     .prepare(
@@ -55,6 +60,7 @@ export const staleWatchlist = (db: D1Database, limit: number) =>
           OR (k.species_num IS NULL AND
               (CASE c.tier WHEN 'SIR' THEN 3 WHEN 'IR' THEN 2 ELSE 1 END) >
               (CASE o.tier WHEN 'SIR' THEN 3 WHEN 'IR' THEN 2 ELSE 1 END))
+          OR c.id IN (SELECT card_id FROM alert)
        ORDER BY COALESCE(p.fetched_at, '') ASC
        LIMIT ?`,
     )

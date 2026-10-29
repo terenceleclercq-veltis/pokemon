@@ -8,6 +8,7 @@
     <meta name="robots" content="noindex, nofollow" />
     <title>Pokédex Kanto</title>
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon-180.png" />
     <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
     <link rel="stylesheet" href="/style.css" />
     <script type="module" src="/app.js"></script>
@@ -32,6 +33,7 @@
       >
         <div id="bar-fill"></div>
       </div>
+      <p id="offline" class="offline" role="status" hidden></p>
     </header>
     <div class="tools" role="search">
       <label class="sr" for="q">Rechercher</label>
@@ -44,6 +46,7 @@
         <option value="complete">Complètes</option>
         <option value="choisie">Choix conservé</option>
         <option value="commande">En commande</option>
+        <option value="alertes">Alertes de prix atteintes</option>
         <option value="none">Sans carte</option>
       </select>
       <label class="sr" for="sort">Trier</label>
@@ -113,6 +116,7 @@
       <button type="button" data-view="manquante:asc">La moins chère à acheter</button>
       <button type="button" data-view="manquante:desc">La plus chère à acheter</button>
       <button type="button" data-view="a_verifier:asc">À améliorer</button>
+      <button type="button" data-view="alertes:num">Alertes de prix</button>
       <button type="button" data-view="none:num">Sans carte</button>
       <button type="button" data-view="all:num">Tout le Pokédex</button>
     </nav>

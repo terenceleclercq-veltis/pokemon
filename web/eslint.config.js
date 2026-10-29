@@ -8,6 +8,7 @@ export default tseslint.config(
       "node_modules",
       "public/app.js",
       "public/placeholders.js",
+      "public/sw.js",
       "coverage",
       "playwright-report",
       "test-results",
@@ -20,7 +21,7 @@ export default tseslint.config(
   {
     languageOptions: {
       parserOptions: {
-        project: ["./tsconfig.json", "./tsconfig.client.json"],
+        project: ["./tsconfig.json", "./tsconfig.client.json", "./tsconfig.sw.json"],
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -37,6 +38,7 @@ export default tseslint.config(
     },
   },
   { files: ["src/client/**", "e2e/**"], languageOptions: { globals: globals.browser } },
+  { files: ["src/sw/**"], languageOptions: { globals: globals.serviceworker } },
   {
     files: ["test/**", "e2e/**"],
     rules: {

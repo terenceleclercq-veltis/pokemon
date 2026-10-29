@@ -103,13 +103,18 @@ export function matches(s: Species, query: string): boolean {
   return q.split(/\s+/).every((w) => h.includes(w));
 }
 
-export type Filter = "all" | "manquante" | "a_verifier" | "complete" | "choisie" | "commande" | "none";
+export type Filter = "all" | "manquante" | "a_verifier" | "complete" | "choisie" | "commande" | "alertes" | "none";
+
+/** Alerte déclenchée : la tendance est passée sous le prix maximum fixé (versions écartées ignorées). */
+export const alertHit = (c: Card) =>
+  c.alert != null && !c.excluded && c.price?.trend != null && c.price.trend <= c.alert;
 export type Sort = "num" | "asc" | "desc";
 
 export function passes(s: Species, f: Filter): boolean {
   if (f === "all") return true;
   if (f === "none") return s.cards.length === 0;
   if (f === "commande") return s.order !== null;
+  if (f === "alertes") return s.cards.some(alertHit);
   // une espèce commandée n'est plus « à acheter » ni « à améliorer »
   if (f === "manquante" || f === "a_verifier") return s.cards.length > 0 && s.status === f && !s.order;
   return s.cards.length > 0 && s.status === f;
@@ -134,6 +139,7 @@ export function stats(data: Species[]) {
     toBuy: count((s) => s.status === "manquante" && s.cards.length > 0 && !s.order),
     toUpgrade: count((s) => s.status === "a_verifier" && !s.order),
     ordered: count((s) => s.order !== null),
+    alerts: count((s) => s.cards.some(alertHit)),
     none: count((s) => s.cards.length === 0),
     /** Reste à payer pour atteindre l'objectif partout (cartes au prix connu, hors commandes en cours). */
     remaining: data.reduce((t, s) => t + (s.order ? 0 : (targetPrice(s) ?? 0)), 0),

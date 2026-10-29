@@ -6,6 +6,7 @@ web/node_modules/
 web/.wrangler/
 web/.dev.vars*
 web/public/app.js
+web/public/sw.js
 web/public/app.js.map
 web/public/placeholders.js
 web/public/placeholders.js.map

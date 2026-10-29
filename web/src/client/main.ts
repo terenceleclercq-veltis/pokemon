@@ -7,7 +7,7 @@ import { $, $as, action, debounce, h, toast } from "./dom";
 import { renderGrid, renderStats, visibleNums } from "./grid";
 import { pushState, readState, replaceState, type Mode, type ViewState } from "./router";
 import { initDashboard } from "./stats";
-import { store, type Filter, type Sort } from "./state";
+import { alertHit, store, type Filter, type Sort } from "./state";
 import { initViewer } from "./viewer";
 
 let view: ViewState = readState();
@@ -27,10 +27,34 @@ function render(): void {
   } else renderGrid(view);
 }
 
+/** Données servies par le service worker hors ligne : bandeau avec la date de la dernière mise à jour. */
+function showOffline(since: string | null): void {
+  const el = $("offline");
+  el.hidden = since === null;
+  if (since === null) return;
+  const d = new Date(since);
+  el.textContent = Number.isNaN(d.getTime())
+    ? "Hors ligne : dernières données enregistrées."
+    : `Hors ligne : données du ${d.toLocaleDateString("fr-BE")} à ${d.toLocaleTimeString("fr-BE", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })}, en lecture seule jusqu'au retour de la connexion.`;
+}
+
 async function load(): Promise<void> {
-  const r = (await (await api("/api/pokedex")).json()) as { species: Species[] };
+  const res = await api("/api/pokedex");
+  showOffline(res.headers.get("X-Offline"));
+  const r = (await res.json()) as { species: Species[] };
   store.data = r.species;
   render();
+}
+
+/** Au chargement : alertes de prix atteintes (détail dans la vue « Alertes de prix »). */
+function announceAlerts(): void {
+  const hits = store.data.filter((s) => s.cards.some(alertHit));
+  if (!hits.length) return;
+  const names = hits.map((s) => s.nom_fr).join(", ");
+  toast(`🔔 ${hits.length > 1 ? `${hits.length} alertes de prix atteintes` : "Alerte de prix atteinte"} : ${names}.`);
 }
 
 function showControls(): void {
@@ -165,8 +189,44 @@ initBuylist(load);
 initDashboard((num) => {
   void openDetail(num);
 });
+/** Trusted Types (CSP « require-trusted-types-for ») : register() n'accepte qu'une URL validée par une politique. */
+interface TrustedTypesLike {
+  createPolicy(
+    name: string,
+    rules: { createScriptURL: (url: string) => string },
+  ): {
+    createScriptURL(url: string): unknown;
+  };
+}
+function swUrl(): string {
+  const tt = (globalThis as { trustedTypes?: TrustedTypesLike }).trustedTypes;
+  if (!tt) return "/sw.js";
+  const policy = tt.createPolicy("sw", {
+    createScriptURL: (url) => {
+      if (url !== "/sw.js") throw new TypeError(`URL de service worker refusée : ${url}`);
+      return url;
+    },
+  });
+  // objet TrustedScriptURL, accepté par register() à la place d'une chaîne
+  return policy.createScriptURL("/sw.js") as string;
+}
+
+// hors ligne : le site reste consultable (service worker) ; de retour en ligne, données à jour
+if ("serviceWorker" in navigator)
+  addEventListener("load", () => {
+    // swUrl() peut lever (politique refusée) : erreur attrapée comme un refus d'enregistrement
+    Promise.resolve()
+      .then(() => navigator.serviceWorker.register(swUrl()))
+      .catch((e: unknown) => {
+        console.warn("service worker non enregistré", e);
+      });
+  });
+addEventListener("online", () => {
+  load().catch(() => undefined);
+});
 load()
   .then(() => {
+    announceAlerts();
     if (view.p) void openDetail(view.p);
   })
   .catch((e: unknown) => {

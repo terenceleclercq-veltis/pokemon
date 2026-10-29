@@ -2,7 +2,7 @@
 import type { Species } from "./api";
 import { $, eur, h, pad } from "./dom";
 import type { ViewState } from "./router";
-import { matches, passes, sortSpecies, stats, store, targetOf, targetPrice, visualOf } from "./state";
+import { alertHit, matches, passes, sortSpecies, stats, store, targetOf, targetPrice, visualOf } from "./state";
 
 let shown: number[] = [];
 /** Numéros des espèces affichées, dans l'ordre de la grille. */
@@ -34,7 +34,8 @@ const MARK: Partial<Record<Species["status"], string>> = { complete: "✓", choi
 
 function tile(s: Species): HTMLElement {
   const v = visualOf(s);
-  const sub = subtitle(s);
+  const hit = s.cards.some(alertHit);
+  const sub = `${subtitle(s)}${hit ? ", alerte de prix atteinte" : ""}`;
   const mark = s.order ? "⏳" : s.cards.length ? MARK[s.status] : undefined;
   return h(
     "button",
@@ -50,10 +51,11 @@ function tile(s: Species): HTMLElement {
       { class: `pic ${v.kind}` },
       h("img", { src: v.src, alt: "", loading: "lazy", decoding: "async", width: 160, height: 223 }),
       mark ? h("span", { class: "mark" }, mark) : null,
+      hit ? h("span", { class: "bell", title: "Alerte de prix atteinte" }, "🔔") : null,
     ),
     h("span", { class: "n" }, pad(s.num)),
     h("strong", {}, s.nom_fr),
-    h("span", { class: "p" }, sub),
+    h("span", { class: "p" }, subtitle(s)),
   );
 }
 
@@ -61,7 +63,8 @@ export function renderStats(): void {
   const st = stats(store.data);
   const text =
     `${st.done}/151 complètes · ${st.toBuy} à acheter · ${st.toUpgrade} à améliorer · ` +
-    `${st.ordered ? `${st.ordered} en commande · ` : ""}${st.none} sans carte · reste ≈ ${eur(st.remaining)}`;
+    `${st.ordered ? `${st.ordered} en commande · ` : ""}${st.alerts ? `🔔 ${st.alerts} alerte${st.alerts > 1 ? "s" : ""} · ` : ""}` +
+    `${st.none} sans carte · reste ≈ ${eur(st.remaining)}`;
   // n'annonce (aria-live) que les vrais changements
   if ($("progress").textContent !== text) $("progress").textContent = text;
   $("bar-fill").style.width = `${(st.done / 151) * 100}%`;

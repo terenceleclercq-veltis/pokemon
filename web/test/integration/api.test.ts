@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetJwksCache } from "../../src/worker/auth";
 import { scheduledRefresh } from "../../src/worker/cron";
 import { applyPriceGuide, FEED_URL } from "../../src/worker/feed";
-import { call, mockOutbound, ORIGIN } from "../helpers";
+import { call, jwks, mockOutbound, ORIGIN, TEAM } from "../helpers";
 
 interface SpeciesDto {
   num: number;
@@ -22,6 +22,8 @@ interface SpeciesDto {
     tier: string;
     langue: string;
     excluded: boolean;
+    origine?: string;
+    alert?: number | null;
     price: { trend: number; source?: string; avg30?: number | null } | null;
   }[];
 }
@@ -52,6 +54,7 @@ describe("authentification et en-têtes", () => {
       expect(csp).toContain("script-src 'self'");
       expect(csp).toContain("frame-ancestors 'none'");
       expect(csp).toContain("require-trusted-types-for 'script'");
+      expect(csp).toContain("trusted-types sw");
       expect(r.headers.get("Strict-Transport-Security")).toContain("max-age=63072000");
       expect(r.headers.get("X-Content-Type-Options")).toBe("nosniff");
       expect(r.headers.get("X-Frame-Options")).toBe("DENY");
@@ -415,7 +418,7 @@ describe("sauvegarde v2 et historique", () => {
       excluded: unknown[];
       purchases: unknown[];
     }>();
-    expect([dump.version, dump.wish.length, dump.excluded.length, dump.purchases.length]).toEqual([2, 1, 1, 1]);
+    expect([dump.version, dump.wish.length, dump.excluded.length, dump.purchases.length]).toEqual([3, 1, 1, 1]);
     await call("/api/species/1/wish", { method: "DELETE" });
     await call("/api/cards/sv03.5-198/excluded", { method: "DELETE" });
     expect((await call("/api/import", { method: "POST", json: dump })).status).toBe(200);
@@ -433,6 +436,108 @@ describe("sauvegarde v2 et historique", () => {
     const h = await (await call("/api/species/1/history")).json<Record<string, [string, number][]>>();
     expect(h["sv03.5-166"]?.[0]?.[1]).toBe(40);
     expect((await call("/api/species/0/history")).status).toBe(400);
+  });
+});
+
+describe("versions ajoutées depuis le site", () => {
+  /** TCGdex simulé (listes, détail, extension) ; le JWKS Access reste servi. */
+  const serveTcgdex = (routes: Record<string, unknown>) =>
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.hostname === `${TEAM}.cloudflareaccess.com`) return Response.json(await jwks());
+      const body = routes[url.pathname + url.search];
+      return body === undefined ? new Response("not found", { status: 404 }) : Response.json(body);
+    });
+  const detail = (id: string, localId: string, name: string, dexId: number[]) => ({
+    id,
+    localId,
+    name,
+    dexId,
+    image: `https://assets.tcgdex.net/fr/sv/sv08/${localId}`,
+    set: { id: "sv08", name: "Étincelles Déferlantes" },
+    pricing: { cardmarket: { idProduct: 790200, trend: 25, avg30: 27 } },
+  });
+  beforeEach(() => {
+    serveTcgdex({
+      "/v2/fr/cards?dexId=eq:1": [
+        { id: "xy1-141", localId: "141", name: "Florizarre EX" }, // déjà au catalogue
+        { id: "base1-44", localId: "44", name: "Bulbizarre", image: "https://assets.tcgdex.net/fr/base/base1/44" },
+        { id: "A1-001", localId: "001", name: "Bulbizarre" }, // TCG Pocket
+      ],
+      "/v2/fr/cards?name=Bulbizarre": [
+        { id: "sv08-200", localId: "200", name: "Bulbizarre", image: "https://assets.tcgdex.net/fr/sv/sv08/200" },
+        { id: "zz-1", localId: "1", name: "Bulbizarrex" }, // contient le nom sans être Bulbizarre
+      ],
+      "/v2/fr/cards/sv08-200": detail("sv08-200", "200", "Bulbizarre", [1]),
+      "/v2/fr/cards/sv08-201": detail("sv08-201", "201", "Bulbizarre", [1]),
+      "/v2/fr/sets/sv08": { abbreviation: { official: "SSP" } },
+    });
+  });
+  const add = (id: string, species_num = 1, tier = "IR") =>
+    call("/api/cards", { method: "POST", json: { species_num, id, tier } });
+
+  it("candidates : hors catalogue, sans TCG Pocket ni faux homonymes, récentes d'abord", async () => {
+    const r = await (await call("/api/species/1/candidates")).json<{ candidates: { id: string; image: string }[] }>();
+    expect(r.candidates.map((c) => c.id)).toEqual(["sv08-200", "base1-44"]);
+    expect(r.candidates[0]?.image).toBe("https://assets.tcgdex.net/fr/sv/sv08/200/low.webp");
+    expect((await call("/api/species/0/candidates")).status).toBe(400);
+  });
+  it("ajout : carte au catalogue (origine site), code Cardmarket et prix tout de suite", async () => {
+    expect((await add("sv08-200")).status).toBe(201);
+    const c = (await species(1)).cards.find((x) => x.id === "sv08-200");
+    expect(c).toMatchObject({ origine: "site", tier: "IR", code_cm: "SSP 200" });
+    expect(c?.cm_url).toContain("790200");
+    expect(c?.price?.trend).toBe(25);
+    expect((await add("sv08-200")).status).toBe(409); // déjà au catalogue
+    expect((await add("sv08-201", 2)).status).toBe(400); // pas un Herbizarre
+    expect((await add("inconnue-9")).status).toBe(400); // introuvable chez TCGdex
+    expect((await add("sv08-201", 1, "XX")).status).toBe(400);
+  });
+  it("retrait : seulement une version ajoutée depuis le site, ni possédée ni commandée", async () => {
+    await add("sv08-200");
+    await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv08-200" } });
+    expect((await call("/api/cards/sv08-200", { method: "DELETE" })).status).toBe(409);
+    await call("/api/species/1/owned", { method: "DELETE" });
+    expect((await call("/api/cards/sv08-200", { method: "DELETE" })).status).toBe(200);
+    expect((await species(1)).cards.some((x) => x.id === "sv08-200")).toBe(false);
+    expect((await call("/api/cards/xy1-141", { method: "DELETE" })).status).toBe(409); // carte du catalogue
+    expect((await call("/api/cards/inconnue-1", { method: "DELETE" })).status).toBe(404);
+  });
+  it("alerte de prix : posée, modifiée, retirée ; suit la carte", async () => {
+    expect((await call("/api/cards/sv03.5-166/alert", { method: "PUT", json: { max_price: 45 } })).status).toBe(200);
+    await call("/api/cards/sv03.5-166/alert", { method: "PUT", json: { max_price: 35 } });
+    expect((await species(1)).cards.find((x) => x.id === "sv03.5-166")?.alert).toBe(35);
+    expect((await call("/api/cards/sv03.5-166/alert", { method: "PUT", json: { max_price: 0 } })).status).toBe(400);
+    expect((await call("/api/cards/inconnue-1/alert", { method: "PUT", json: { max_price: 5 } })).status).toBe(400);
+    await call("/api/cards/sv03.5-166/alert", { method: "DELETE" });
+    expect((await species(1)).cards.find((x) => x.id === "sv03.5-166")?.alert).toBeNull();
+    // une version retirée emporte son alerte
+    await add("sv08-200");
+    await call("/api/cards/sv08-200/alert", { method: "PUT", json: { max_price: 20 } });
+    await call("/api/cards/sv08-200", { method: "DELETE" });
+    expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM alert").first<{ n: number }>())?.n).toBe(0);
+  });
+  it("sauvegarde v3 : versions ajoutées et alertes restaurées ; une sauvegarde v2 retire les ajouts", async () => {
+    await add("sv08-200");
+    await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv08-200" } });
+    await call("/api/cards/sv08-200/alert", { method: "PUT", json: { max_price: 20 } });
+    const dump = await (
+      await call("/api/export")
+    ).json<{ version: number; cards_site: unknown[]; alerts: unknown[] }>();
+    expect([dump.version, dump.cards_site.length, dump.alerts.length]).toEqual([3, 1, 1]);
+    await call("/api/species/1/owned", { method: "DELETE" });
+    await call("/api/cards/sv08-200", { method: "DELETE" });
+    expect((await call("/api/import", { method: "POST", json: dump })).status).toBe(200);
+    const s = await species(1);
+    expect(s.owned?.card_id).toBe("sv08-200");
+    expect(s.cards.find((x) => x.id === "sv08-200")).toMatchObject({ origine: "site", alert: 20 });
+    // sauvegarde v2 (sans versions ajoutées) : l'ajout non référencé est retiré
+    const v2 = { version: 2, owned: [], keep: [], wish: [], excluded: [], purchases: [] };
+    expect((await call("/api/import", { method: "POST", json: v2 })).status).toBe(200);
+    expect((await species(1)).cards.some((x) => x.id === "sv08-200")).toBe(false);
+    // version ajoutée invalide : rien n'est modifié
+    const bad = { ...dump, cards_site: [{ ...(dump.cards_site[0] as object), image: "https://evil.example/x" }] };
+    expect((await call("/api/import", { method: "POST", json: bad })).status).toBe(400);
   });
 });
 

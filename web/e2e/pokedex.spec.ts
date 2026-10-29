@@ -267,13 +267,83 @@ test("fiche : écarter une version, la réintégrer, viser une version", async (
   await opt.getByRole("button", { name: "Écarter" }).click();
   const out = dlg.locator("details.excluded");
   await expect(out).toContainText(`Versions écartées (1)`);
-  await out.locator("summary").click();
+  await out.locator(":scope > summary").click();
   await out.getByRole("button", { name: "Réintégrer" }).click();
   await expect(dlg.locator("details.excluded")).toHaveCount(0);
   await dlg.locator(".versions .opt", { hasText: name }).getByRole("button", { name: "Viser cette version" }).click();
   await expect(dlg.locator(".chip.goal", { hasText: "ton choix" })).toBeVisible();
   await dlg.getByRole("button", { name: "Ne plus viser" }).click();
   await expect(dlg.locator(".chip.goal", { hasText: "ton choix" })).toHaveCount(0);
+});
+
+test("alertes de prix : annonce au chargement, cloche, vue rapide, statistiques", async ({ page }) => {
+  // Pikachu : prix tendance (20 €) sous l'alerte (50 €), sans attendre une vraie baisse
+  await page.route("**/api/pokedex", async (route) => {
+    const res = await route.fetch();
+    const dex = (await res.json()) as {
+      species: { num: number; cards: { alert?: number | null; price: unknown; excluded: boolean }[] }[];
+    };
+    const card = dex.species.find((s) => s.num === 25)?.cards.find((c) => !c.excluded);
+    if (card) Object.assign(card, { alert: 50, price: { trend: 20, low: 15 } });
+    await route.fulfill({ response: res, json: dex });
+  });
+  await page.goto("/");
+  await expect(page.locator(".toast")).toContainText("Alerte de prix atteinte : Pikachu.");
+  await expect(page.locator('.tile[data-num="25"] .bell')).toBeVisible();
+  await expect(page.locator("#progress")).toContainText("🔔 1 alerte");
+  await page.locator("#quick").getByRole("button", { name: "Alertes de prix" }).click();
+  await expect(page.locator(".tile")).toHaveCount(1);
+  await expect(page).toHaveURL(/f=alertes/);
+  await page.getByRole("button", { name: "Statistiques" }).click();
+  await expect(page.locator("#stats")).toContainText("Alertes de prix");
+  await expect(page.locator("#stats")).toContainText("max 50,00");
+});
+
+test("fiche : poser, modifier et retirer une alerte de prix", async ({ page }) => {
+  await page.goto("/#p=7");
+  const dlg = page.locator("#detail");
+  await expect(dlg.locator(".price").first()).toContainText("€");
+  const opt = dlg.locator(".versions .opt:not(.mine)").first();
+  const code = (await opt.locator(".code").textContent()) ?? "";
+  await opt.locator("details.alert-d summary").click();
+  await opt.getByLabel(/Prix maximum/).fill("12.5");
+  await opt.getByRole("button", { name: "Enregistrer" }).click();
+  await expect(page.locator(".toast").last()).toContainText("Alerte :");
+  const again = dlg.locator(".versions .opt", { hasText: code });
+  await expect(again.locator(".chip.alert")).toContainText("12,50");
+  await again.locator("details.alert-d summary").click();
+  await again.getByRole("button", { name: "Retirer l'alerte" }).click();
+  await expect(dlg.locator(".versions .opt", { hasText: code }).locator(".chip.alert")).toHaveCount(0);
+});
+
+test("fiche : ajouter une version manquante (recherche TCGdex simulée)", async ({ page }) => {
+  await page.route("**/api/species/*/candidates", (route) =>
+    route.fulfill({
+      json: {
+        candidates: [
+          {
+            id: "sv08-200",
+            name: "Carapuce",
+            numero: "200",
+            image: "https://assets.tcgdex.net/fr/sv/sv08/200/low.webp",
+          },
+        ],
+      },
+    }),
+  );
+  let sent: unknown = null;
+  await page.route("**/api/cards", async (route) => {
+    sent = route.request().postDataJSON();
+    await route.fulfill({ status: 201, json: { ok: true } });
+  });
+  await page.goto("/#p=7");
+  const dlg = page.locator("#detail");
+  await dlg.locator("details.addv summary").click();
+  await dlg.getByLabel("Rareté de la version ajoutée").selectOption("SIR");
+  page.once("dialog", (d) => void d.accept());
+  await dlg.getByRole("button", { name: "Ajouter Carapuce 200 (sv08-200)" }).click();
+  await expect(page.locator(".toast").last()).toContainText("Carapuce 200 ajoutée (SIR).");
+  expect(sent).toEqual({ species_num: 7, id: "sv08-200", tier: "SIR" });
 });
 
 test("vue classeur : 17 pages de 9 cases, une case ouvre la fiche", async ({ page }) => {
