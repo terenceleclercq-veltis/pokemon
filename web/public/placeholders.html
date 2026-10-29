@@ -13,8 +13,9 @@
     <form id="opts" class="noprint">
       <h1>Placeholders de binder</h1>
       <p>
-        Une fiche au format carte (63 × 88 mm) avec l'illustration officielle du Pokémon, 9 par feuille A4 comme un
-        classeur 9 cases. Impression : A4,
+        Une fiche au format carte (63 × 88 mm) avec l'illustration officielle du Pokémon, son emplacement dans le
+        classeur (page, case) et, au choix, la carte visée avec un QR code vers l'offre Cardmarket exacte. 9 par feuille
+        A4. Impression : A4,
         <strong>échelle 100 %</strong> (pas « ajuster à la page »), marges « aucune », graphismes d'arrière-plan
         activés.
       </p>
@@ -23,6 +24,13 @@
         <select id="scope">
           <option value="missing">Manquantes</option>
           <option value="all">Les 151 (binder complet)</option>
+        </select>
+      </label>
+      <label
+        >Contenu
+        <select id="rich">
+          <option value="oui">Avec la carte visée (code, prix, QR code)</option>
+          <option value="non">Illustration seule</option>
         </select>
       </label>
       <button id="print" type="button">Imprimer</button>

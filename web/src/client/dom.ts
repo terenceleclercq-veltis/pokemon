@@ -23,6 +23,9 @@ const ATTRS = new Set([
   "step",
   "inputmode",
   "placeholder",
+  "maxlength",
+  "name",
+  "scope",
 ]);
 const SAFE_URL = /^(https:|blob:|\/(?!\/))/; // ni javascript:, ni data:, ni //hôte
 

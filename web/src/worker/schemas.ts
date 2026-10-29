@@ -19,6 +19,11 @@ export const speciesParam = z.object({
 });
 export const ownedBody = z.union([z.strictObject({ card_id: cardId, note }), z.strictObject({ tier, note })]);
 export const keepBody = z.strictObject({ note });
+/** États de la grille Cardmarket. */
+const condition = z.nullish(z.enum(["MT", "NM", "EX", "GD", "LP", "PL", "PO"]));
+const grade = z.nullish(z.string().check(z.trim(), z.maxLength(20)));
+const doubles = z.optional(z.number().check(z.int(), z.gte(0), z.lte(99)));
+export const detailsBody = z.strictObject({ note, condition, grade, doubles });
 export const cardParam = z.object({ id: cardId });
 export const wishBody = z.strictObject({ card_id: cardId });
 export const excludeBody = z.strictObject({ reason: note });
@@ -49,7 +54,9 @@ const isoDate = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/));
 /** Sauvegarde : version 1 (binder seul) ou 2 (+ versions visées, écartées, commandes). */
 export const importBody = z.strictObject({
   version: z.union([z.literal(1), z.literal(2)]),
-  owned: z.array(z.object({ species_num: species, card_id: z.nullable(cardId), tier, note })).check(z.maxLength(151)),
+  owned: z
+    .array(z.object({ species_num: species, card_id: z.nullable(cardId), tier, note, condition, grade, doubles }))
+    .check(z.maxLength(151)),
   keep: z.array(z.object({ species_num: species, note })).check(z.maxLength(151)),
   wish: z.optional(z.array(z.object({ species_num: species, card_id: cardId })).check(z.maxLength(151))),
   excluded: z.optional(z.array(z.object({ card_id: cardId, reason: note })).check(z.maxLength(2000))),

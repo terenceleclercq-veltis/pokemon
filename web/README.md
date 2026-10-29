@@ -5,7 +5,9 @@ sinon l'illustration du Pokémon), prix en direct, objectif « la SIR si elle ex
 d'achat avec améliorations), visionneuse haute définition, tri par prix et vues rapides (« la moins chère à acheter »),
 choix « je préfère la mienne » qui arrête la vérification. Prix du guide officiel Cardmarket (moyenne 30 jours, repère
 « bon prix », courbe), version visée ou écartée par espèce, commandes suivies jusqu'à réception (vérification de la
-carte, prix payé), sauvegarde JSON complète.
+carte, prix payé), sauvegarde JSON complète. Vue classeur (17 pages de 9 cases, miroir du binder), statistiques
+(progression par objectif, valeur, dépenses, bonnes affaires), « Ma carte » (état, gradation, doubles) et placeholders
+imprimables avec emplacement, carte visée et QR code vers l'offre.
 
 ## Pile technique et pourquoi
 

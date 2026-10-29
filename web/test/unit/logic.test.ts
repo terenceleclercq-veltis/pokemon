@@ -4,6 +4,7 @@ import {
   cheapestPerTier,
   higherThan,
   objectiveTier,
+  slotOf,
   speciesStatus,
   targetCard,
   wantsLine,
@@ -62,6 +63,15 @@ describe("objectif", () => {
     expect(targetCard(cards, "complete", prices)).toBeNull();
     expect(targetCard(cards, "choisie", prices)).toBeNull();
     expect(targetCard([], "manquante", prices)).toBeNull();
+  });
+});
+
+describe("slotOf", () => {
+  it("classeur 9 cases dans l'ordre du Pokédex", () => {
+    expect(slotOf(1)).toEqual({ page: 1, case: 1 });
+    expect(slotOf(9)).toEqual({ page: 1, case: 9 });
+    expect(slotOf(10)).toEqual({ page: 2, case: 1 });
+    expect(slotOf(151)).toEqual({ page: 17, case: 7 });
   });
 });
 

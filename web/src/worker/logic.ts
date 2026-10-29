@@ -31,6 +31,12 @@ export interface Owned {
   card_id: string | null;
   tier: Tier;
   note: string | null;
+  /** État (grille Cardmarket : MT, NM, EX, GD, LP, PL, PO). */
+  condition?: string | null;
+  /** Gradation (« PSA 10 »…). */
+  grade?: string | null;
+  /** Exemplaires en double, pour l'échange. */
+  doubles?: number;
   updated_at: string;
 }
 export interface Keep {
@@ -95,6 +101,9 @@ export function targetCard(
   const tier = objectiveTier(cards);
   return tier ? (cheapestPerTier(cards, prices)[tier] ?? null) : null;
 }
+
+/** Emplacement dans un classeur 9 cases, dans l'ordre du Pokédex : page et case (1 à 9, de gauche à droite). */
+export const slotOf = (num: number) => ({ page: Math.ceil(num / 9), case: ((num - 1) % 9) + 1 });
 
 /** Cartes strictement plus rares que celle possédée. */
 export function higherThan(cards: readonly Card[], owned: Owned): Card[] {

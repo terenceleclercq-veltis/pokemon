@@ -15,6 +15,7 @@ import {
   wantsLine,
   cardmarketLabel,
   cardmarketUrl,
+  slotOf,
   type Card,
   type Price,
   type Purchase,
@@ -23,6 +24,7 @@ import { refreshPrices } from "./prices";
 import {
   buylistQuery,
   cardParam,
+  detailsBody,
   excludeBody,
   importBody,
   keepBody,
@@ -200,6 +202,9 @@ app.get("/api/species/:num/prices", async (c) => {
   return c.json(await refreshPrices(c.env.DB, results));
 });
 
+/** Changement de carte : état et gradation ne valent plus (la nouvelle carte est une autre carte physique). */
+const OWNED_CHANGE = `condition = CASE WHEN card_id IS ?2 THEN condition END, grade = CASE WHEN card_id IS ?2 THEN grade END`;
+
 app.put("/api/species/:num/owned", async (c) => {
   const num = speciesNum(c);
   const body = parse(ownedBody, await jsonBody(c));
@@ -213,12 +218,27 @@ app.put("/api/species/:num/owned", async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare(
       `INSERT INTO owned (species_num, card_id, tier, note, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)
-       ON CONFLICT(species_num) DO UPDATE SET card_id = ?2, tier = ?3, note = ?4, updated_at = ?5`,
+       ON CONFLICT(species_num) DO UPDATE SET ${OWNED_CHANGE}, card_id = ?2, tier = ?3,
+         note = COALESCE(?4, note), updated_at = ?5`,
     ).bind(num, cardId, tier, body.note ?? null, new Date().toISOString()),
     // nouvelle carte possédée : l'ancienne décision « je préfère la mienne » ne vaut plus
     c.env.DB.prepare("DELETE FROM keep WHERE species_num = ?").bind(num),
     audit(c.env.DB, c.get("user"), "owned.set", `${num} ${cardId ?? tier}`),
   ]);
+  return c.json({ ok: true });
+});
+
+/** Ma carte : note, état (grille Cardmarket), gradation, doubles pour l'échange. */
+app.put("/api/species/:num/details", async (c) => {
+  const num = speciesNum(c);
+  const b = parse(detailsBody, await jsonBody(c));
+  const r = await c.env.DB.prepare(
+    "UPDATE owned SET note = ?2, condition = ?3, grade = ?4, doubles = ?5, updated_at = ?6 WHERE species_num = ?1",
+  )
+    .bind(num, b.note ?? null, b.condition ?? null, b.grade ?? null, b.doubles ?? 0, new Date().toISOString())
+    .run();
+  if (!r.meta.changes) throw fail(409, "espèce non possédée");
+  await audit(c.env.DB, c.get("user"), "owned.details", num).run();
   return c.json({ ok: true });
 });
 
@@ -270,7 +290,7 @@ const setOwned = (db: D1Database, num: number, cardId: string, tier: string, at:
   db
     .prepare(
       `INSERT INTO owned (species_num, card_id, tier, note, updated_at) VALUES (?1, ?2, ?3, NULL, ?4)
-       ON CONFLICT(species_num) DO UPDATE SET card_id = ?2, tier = ?3, updated_at = ?4`,
+       ON CONFLICT(species_num) DO UPDATE SET ${OWNED_CHANGE}, card_id = ?2, tier = ?3, updated_at = ?4`,
     )
     .bind(num, cardId, tier, at),
   db.prepare("DELETE FROM keep WHERE species_num = ?").bind(num),
@@ -443,7 +463,18 @@ app.get("/api/placeholders", async (c) => {
   const { scope } = parse(placeholdersQuery, c.req.query());
   const items = (await pokedex(c.env.DB))
     .filter((s) => scope === "all" || s.status === "manquante")
-    .map((s) => ({ num: s.num, nom_fr: s.nom_fr }));
+    .map((s) => {
+      const t = s.cards.find((x) => x.id === s.target);
+      return {
+        num: s.num,
+        nom_fr: s.nom_fr,
+        slot: slotOf(s.num),
+        /** Carte visée (code, prix, lien) pour l'imprimer sur la fiche ; null si rien à acheter. */
+        target: t
+          ? { label: t.cm_label, code: t.code_cm, tier: t.tier, trend: t.price?.trend ?? null, url: t.cm_url }
+          : null,
+      };
+    });
   return c.json({ items });
 });
 
@@ -463,7 +494,9 @@ app.get("/api/species/:num/history", async (c) => {
 
 app.get("/api/export", async (c) => {
   const [owned, keep, wish, excluded, purchases] = await c.env.DB.batch([
-    c.env.DB.prepare("SELECT species_num, card_id, tier, note FROM owned ORDER BY species_num"),
+    c.env.DB.prepare(
+      "SELECT species_num, card_id, tier, note, condition, grade, doubles FROM owned ORDER BY species_num",
+    ),
     c.env.DB.prepare("SELECT species_num, note FROM keep ORDER BY species_num"),
     c.env.DB.prepare("SELECT species_num, card_id FROM wish ORDER BY species_num"),
     c.env.DB.prepare("SELECT card_id, reason FROM excluded ORDER BY card_id"),
@@ -511,8 +544,20 @@ app.post("/api/import", async (c) => {
     ...["keep", "wish", "excluded", "purchase", "owned"].map((t) => db.prepare(`DELETE FROM ${t}`)),
     ...b.owned.map((o) =>
       db
-        .prepare("INSERT INTO owned (species_num, card_id, tier, note, updated_at) VALUES (?, ?, ?, ?, ?)")
-        .bind(o.species_num, o.card_id, o.tier, o.note ?? null, now),
+        .prepare(
+          `INSERT INTO owned (species_num, card_id, tier, note, condition, grade, doubles, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          o.species_num,
+          o.card_id,
+          o.tier,
+          o.note ?? null,
+          o.condition ?? null,
+          o.grade ?? null,
+          o.doubles ?? 0,
+          now,
+        ),
     ),
     ...b.keep.map((k) =>
       db
