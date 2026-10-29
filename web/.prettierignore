@@ -3,6 +3,7 @@ public/app.js
 public/app.js.map
 public/placeholders.js
 public/placeholders.js.map
+public/sw.js
 coverage
 playwright-report
 test-results

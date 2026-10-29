@@ -38,7 +38,7 @@ export function receptionChecklist(c: Card, onConfirm: () => Promise<void>): HTM
   });
   return h(
     "details",
-    { class: "check" },
+    { class: "check", "data-key": "check" },
     h("summary", {}, "Reçue : vérifier la carte"),
     h("ul", {}, ...boxes.map((b) => b.row)),
     confirmBtn,

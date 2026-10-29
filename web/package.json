@@ -6,10 +6,10 @@
     "node": ">=22"
   },
   "scripts": {
-    "build:client": "esbuild src/client/main.ts --bundle --minify --format=esm --target=es2022 --sourcemap=linked --outfile=public/app.js && esbuild src/client/placeholders.ts --bundle --minify --format=esm --target=es2022 --sourcemap=linked --outfile=public/placeholders.js",
+    "build:client": "esbuild src/client/main.ts --bundle --minify --format=esm --target=es2022 --sourcemap=linked --outfile=public/app.js && esbuild src/client/placeholders.ts --bundle --minify --format=esm --target=es2022 --sourcemap=linked --outfile=public/placeholders.js && esbuild src/sw/sw.ts --bundle --minify --format=iife --target=es2022 --outfile=public/sw.js",
     "dev": "wrangler dev --var DEV_BYPASS_AUTH:1",
     "types": "wrangler types --include-runtime=false --strict-vars=false",
-    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.client.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.client.json && tsc -p tsconfig.sw.json",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "test": "vitest run",

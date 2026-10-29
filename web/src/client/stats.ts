@@ -2,7 +2,7 @@
 import { api, type Card, type Species, type Tier } from "./api";
 import { bars } from "./chart";
 import { $, $as, action, eur, h, pad } from "./dom";
-import { cardImg, goodDeal, ownedCard, stats, store, targetOf, TIER_LABEL } from "./state";
+import { alertHit, cardImg, goodDeal, ownedCard, stats, store, targetOf, TIER_LABEL } from "./state";
 
 interface PurchaseRow {
   state: "commandee" | "recue" | "annulee";
@@ -126,6 +126,23 @@ function deals(data: Species[]): HTMLElement | null {
   );
 }
 
+function alerts(data: Species[]): HTMLElement | null {
+  const list = data
+    .flatMap((s) => s.cards.filter((c) => c.alert != null).map((c) => ({ s, c, hit: alertHit(c) })))
+    .sort((a, b) => Number(b.hit) - Number(a.hit) || a.s.num - b.s.num);
+  if (!list.length) return null;
+  return h(
+    "section",
+    {},
+    h("h3", {}, "Alertes de prix"),
+    h(
+      "ol",
+      { class: "buylist" },
+      ...list.map((x) => cardRow(x.s, x.c, `${x.hit ? "🔔 " : ""}${eur(x.c.price?.trend)} / max ${eur(x.c.alert)}`)),
+    ),
+  );
+}
+
 export async function renderDashboard(): Promise<void> {
   const data = store.data;
   const st = stats(data);
@@ -137,7 +154,9 @@ export async function renderDashboard(): Promise<void> {
       `${st.done}/151 complètes · reste à payer pour l'objectif ≈ `,
       h("strong", {}, eur(st.remaining)),
     ),
-    ...[progress(data), value(data), deals(data), spending(purchases)].filter((x): x is HTMLElement => x !== null),
+    ...[progress(data), alerts(data), value(data), deals(data), spending(purchases)].filter(
+      (x): x is HTMLElement => x !== null,
+    ),
   );
 }
 

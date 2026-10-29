@@ -24,6 +24,9 @@ const condition = z.nullish(z.enum(["MT", "NM", "EX", "GD", "LP", "PL", "PO"]));
 const grade = z.nullish(z.string().check(z.trim(), z.maxLength(20)));
 const doubles = z.optional(z.number().check(z.int(), z.gte(0), z.lte(99)));
 export const detailsBody = z.strictObject({ note, condition, grade, doubles });
+/** Version ajoutée depuis le site : id TCGdex choisi parmi les candidates, rareté déclarée par Terence. */
+export const addCardBody = z.strictObject({ species_num: species, id: cardId, tier });
+export const alertBody = z.strictObject({ max_price: z.number().check(z.gt(0), z.lte(100_000)) });
 export const cardParam = z.object({ id: cardId });
 export const wishBody = z.strictObject({ card_id: cardId });
 export const excludeBody = z.strictObject({ reason: note });
@@ -51,9 +54,25 @@ export const buylistQuery = z.object({
   budget: z.optional(z.coerce.number().check(z.gt(0), z.lte(100_000))),
 });
 const isoDate = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/));
-/** Sauvegarde : version 1 (binder seul) ou 2 (+ versions visées, écartées, commandes). */
+const tcgdexImage = z.optional(z.url({ protocol: /^https$/, hostname: /^assets\.tcgdex\.net$/ }));
+/** Version ajoutée depuis le site, telle qu'enregistrée dans une sauvegarde v3. */
+const siteCard = z.object({
+  id: cardId,
+  species_num: species,
+  nom_fr: z.string().check(z.minLength(1), z.maxLength(80)),
+  set_name: z.string().check(z.minLength(1), z.maxLength(80)),
+  numero: z.string().check(z.minLength(1), z.maxLength(20)),
+  tier,
+  id_product: z.nullable(z.number().check(z.int(), z.gt(0))),
+  code_cm: z.nullable(z.string().check(z.maxLength(30))),
+  image: z.nullable(z.url({ protocol: /^https$/, hostname: /^assets\.tcgdex\.net$/ })),
+});
+/**
+ * Sauvegarde : version 1 (binder seul), 2 (+ versions visées, écartées, commandes) ou 3 (+ versions ajoutées
+ * depuis le site, alertes de prix).
+ */
 export const importBody = z.strictObject({
-  version: z.union([z.literal(1), z.literal(2)]),
+  version: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   owned: z
     .array(z.object({ species_num: species, card_id: z.nullable(cardId), tier, note, condition, grade, doubles }))
     .check(z.maxLength(151)),
@@ -74,6 +93,12 @@ export const importBody = z.strictObject({
       )
       .check(z.maxLength(5000)),
   ),
+  cards_site: z.optional(z.array(siteCard).check(z.maxLength(2000))),
+  alerts: z.optional(
+    z
+      .array(z.object({ card_id: cardId, max_price: z.number().check(z.gt(0), z.lte(100_000)) }))
+      .check(z.maxLength(2000)),
+  ),
 });
 /** Réponse TCGdex (source externe : jamais crue sur parole). */
 const num = z.nullish(z.number().check(z.gte(0)));
@@ -84,6 +109,31 @@ export const priceFeed = z.object({
   guide: z.string().check(z.minLength(10), z.maxLength(40)),
   generated_at: z.string().check(z.maxLength(40)),
   prices: z.record(z.string().check(z.regex(/^\d{1,9}$/)), point),
+});
+
+/** Liste de cartes TCGdex (recherche) : seuls les champs utiles, vérifiés. */
+export const tcgdexBriefs = z.array(
+  z.object({
+    id: cardId,
+    localId: z.string().check(z.maxLength(20)),
+    name: z.string().check(z.maxLength(80)),
+    image: tcgdexImage,
+  }),
+);
+/** Détail d'une carte TCGdex pour l'ajouter au catalogue. */
+export const tcgdexDetail = z.object({
+  id: cardId,
+  localId: z.string().check(z.maxLength(20)),
+  name: z.string().check(z.maxLength(80)),
+  dexId: z.optional(z.array(z.number().check(z.int()))),
+  image: tcgdexImage,
+  set: z.object({ id: z.string().check(z.regex(/^[A-Za-z0-9.-]{1,30}$/)), name: z.string().check(z.maxLength(80)) }),
+  pricing: z.nullish(
+    z.object({ cardmarket: z.nullish(z.object({ idProduct: z.optional(z.number().check(z.int())) })) }),
+  ),
+});
+export const tcgdexSet = z.object({
+  abbreviation: z.optional(z.object({ official: z.optional(z.string().check(z.maxLength(20))) })),
 });
 
 export const tcgdexCard = z.object({

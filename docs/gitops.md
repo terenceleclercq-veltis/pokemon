@@ -87,7 +87,8 @@ reste une PR vérifiée à la main.
 **Catalogue** : `data/catalogue_fullart.csv` → `scripts/07_codes_cardmarket.py` (code Cardmarket « MEW 166 », depuis
 TCGdex) → `scripts/06_seed_web.py` → `web/seed.sql`. Au premier déploiement d'un environnement (base vide), le pipeline charge `seed.sql`. Ensuite, toute
 mise à jour du catalogue passe par `catalogue.yml` (sauvegarde D1 préalable), car `seed.sql` retire les cartes qui
-ne sont plus au catalogue.
+ne sont plus au catalogue, sauf celles possédées, commandées ou ajoutées depuis le site (origine « site »). Une version
+ajoutée depuis le site puis entrée au catalogue redevient une carte du catalogue.
 
 **GitHub** : environnements, secrets, variables, ruleset et sécurité sont posés par `scripts/configurer-github.sh`
 (première configuration) et `scripts/migrer-compte-pokemon.sh` (bascule de compte), à lancer sur un poste avec `gh` :

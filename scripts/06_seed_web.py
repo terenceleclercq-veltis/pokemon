@@ -1,7 +1,7 @@
 """Étape 6 : génère web/seed.sql (espèces + catalogue) depuis data/*.csv. Relançable.
 
 Idempotent et non destructif : upsert des espèces et cartes ; suppression uniquement des cartes
-sorties du catalogue ET non référencées par une carte possédée (clé étrangère owned.card_id).
+sorties du catalogue, ni possédées, ni commandées, ni ajoutées depuis le site.
 """
 import csv
 
@@ -50,14 +50,16 @@ def main():
             "nom_fr = excluded.nom_fr, set_name = excluded.set_name, numero = excluded.numero, "
             "categorie = excluded.categorie, tier = excluded.tier, confiance = excluded.confiance, "
             "id_product = excluded.id_product, code_cm = excluded.code_cm, nom_cm = excluded.nom_cm, "
-            "langue = excluded.langue;" % (
+            "langue = excluded.langue, origine = 'catalogue';" % (
                 q(cid), r["numero_pokedex"], q(r["carte_fr"]), q(r["set"]), q(r["numero"]),
                 q(r["categorie_fullart"]), q(TIER.get(r["categorie_fullart"], "FA")), q(r["confiance"]), prod or "NULL",
                 q(r.get("code_cardmarket")), q(r.get("nom_cardmarket")), q(langue)))
     keep = ",".join(q(i) for i in ids)
-    # une carte sortie du catalogue reste si elle est possédée ou dans l'historique des commandes (clés étrangères) ;
-    # versions visées et écartées suivent la carte (ON DELETE CASCADE)
-    used = "(SELECT card_id FROM owned WHERE card_id IS NOT NULL UNION SELECT card_id FROM purchase)"
+    # une carte sortie du catalogue reste si elle est possédée ou dans l'historique des commandes (clés étrangères),
+    # ou si elle a été ajoutée depuis le site ; versions visées et écartées suivent la carte (ON DELETE CASCADE).
+    # Une carte ajoutée depuis le site puis entrée au catalogue redevient « catalogue » (upsert ci-dessus).
+    used = ("(SELECT card_id FROM owned WHERE card_id IS NOT NULL UNION SELECT card_id FROM purchase "
+            "UNION SELECT id FROM cards WHERE origine = 'site')")
     out.append(f"DELETE FROM price_cache WHERE card_id NOT IN ({keep}) AND card_id NOT IN {used};")
     out.append(f"DELETE FROM cards WHERE id NOT IN ({keep}) AND id NOT IN {used};")
     (ROOT / "web" / "seed.sql").write_text("\n".join(out) + "\n", encoding="utf-8")

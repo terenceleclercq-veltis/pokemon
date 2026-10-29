@@ -4,6 +4,7 @@ import { HTTPException } from "hono/http-exception";
 import { secureHeaders } from "hono/secure-headers";
 import type * as z from "zod/mini";
 import { devBypass, verifyAccessJwt } from "./auth";
+import { candidates, cardFromTcgdex, nameMatches } from "./catalog";
 import { audit, cardById, cardTier, cardsOf, loadAll } from "./db";
 import {
   cheapestPerTier,
@@ -22,6 +23,8 @@ import {
 } from "./logic";
 import { refreshPrices } from "./prices";
 import {
+  addCardBody,
+  alertBody,
   buylistQuery,
   cardParam,
   detailsBody,
@@ -52,7 +55,8 @@ export const CSP = {
   formAction: ["'self'"],
   frameAncestors: ["'none'"],
   requireTrustedTypesFor: ["'script'"],
-  trustedTypes: ["'none'"],
+  // une seule politique, « sw » : elle n'accepte que l'URL du service worker (client, main.ts)
+  trustedTypes: ["sw"],
   upgradeInsecureRequests: [],
 };
 
@@ -123,6 +127,7 @@ async function pokedex(db: D1Database) {
   const wish = new Map(all.wish.map((w) => [w.species_num, w.card_id]));
   const excluded = new Set(all.excluded.map((e) => e.card_id));
   const orders = new Map<number, Purchase>(all.orders.map((o) => [o.species_num, o]));
+  const alerts = new Map(all.alerts.map((a) => [a.card_id, a.max_price]));
   return all.species.map((s) => {
     const cards = bySpecies.get(s.num) ?? [];
     // versions écartées : affichées, mais ignorées pour l'objectif, le statut et les achats
@@ -148,6 +153,8 @@ async function pokedex(db: D1Database) {
       cards: cards.map((c) => ({
         ...c,
         excluded: excluded.has(c.id),
+        /** Alerte : prix maximum souhaité, null sinon. */
+        alert: alerts.get(c.id) ?? null,
         cm_label: cardmarketLabel(c),
         cm_url: c.id_product ? cardmarketUrl(c.id_product) : null,
         price: price[c.id] ?? null,
@@ -158,6 +165,15 @@ async function pokedex(db: D1Database) {
 
 export const app = new Hono<AppEnv>();
 
+// Service worker : ses propres requêtes (mise en cache des images de cartes) relèvent de sa CSP, qui autorise donc
+// les deux hôtes d'images en connect-src. Posée après celle de secureHeaders (middleware extérieur).
+app.use("/sw.js", async (c, next) => {
+  await next();
+  c.res.headers.set(
+    "Content-Security-Policy",
+    `default-src 'none'; connect-src 'self' ${CSP.imgSrc.slice(1).join(" ")}`,
+  );
+});
 app.use(
   "*",
   secureHeaders({
@@ -344,6 +360,94 @@ app.delete("/api/cards/:id/excluded", async (c) => {
   return c.json({ ok: true });
 });
 
+/** Cartes TCGdex de l'espèce absentes du catalogue, pour en ajouter une depuis la fiche. */
+app.get("/api/species/:num/candidates", async (c) => {
+  const num = speciesNum(c);
+  const sp = await c.env.DB.prepare("SELECT nom_fr FROM species WHERE num = ?").bind(num).first<{ nom_fr: string }>();
+  if (!sp) throw fail(404, "espèce inconnue");
+  const { results } = await c.env.DB.prepare("SELECT id FROM cards").all<{ id: string }>();
+  return c.json({ candidates: await candidates(sp.nom_fr, num, new Set(results.map((r) => r.id))) });
+});
+
+/** Ajoute une version au catalogue depuis TCGdex (origine « site », gardée par les mises à jour du catalogue). */
+app.post("/api/cards", async (c) => {
+  const b = parse(addCardBody, await jsonBody(c));
+  if (await cardById(c.env.DB, b.id)) throw fail(409, "carte déjà au catalogue");
+  const sp = await c.env.DB.prepare("SELECT nom_fr FROM species WHERE num = ?")
+    .bind(b.species_num)
+    .first<{ nom_fr: string }>();
+  if (!sp) throw fail(404, "espèce inconnue");
+  const card = await cardFromTcgdex(b.id);
+  if (!card) throw fail(400, "carte introuvable chez TCGdex");
+  if (!card.dex.includes(b.species_num) && !nameMatches(card.nom_fr, sp.nom_fr))
+    throw fail(400, `cette carte n'est pas un ${sp.nom_fr}`);
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO cards (id, species_num, nom_fr, set_name, numero, categorie, tier, confiance, id_product, code_cm,
+         nom_cm, langue, image, origine)
+       VALUES (?1, ?2, ?3, ?4, ?5, 'SITE', ?6, 'certain', ?7, ?8, NULL, 'fr', ?9, 'site')`,
+    ).bind(
+      b.id,
+      b.species_num,
+      card.nom_fr,
+      card.set_name,
+      card.numero,
+      b.tier,
+      card.id_product,
+      card.code_cm,
+      card.image,
+    ),
+    audit(c.env.DB, c.get("user"), "card.add", `${b.species_num} ${b.id} ${b.tier}`),
+  ]);
+  // prix tout de suite (TCGdex), sans attendre la prochaine tâche planifiée
+  await refreshPrices(c.env.DB, [{ id: b.id, langue: "fr" }]).catch(() => null);
+  return c.json({ ok: true }, 201);
+});
+
+/** Retire une version ajoutée depuis le site (jamais une carte du catalogue, ni une carte possédée ou commandée). */
+app.delete("/api/cards/:id", async (c) => {
+  const id = cardIdOf(c);
+  const row = await c.env.DB.prepare("SELECT origine FROM cards WHERE id = ?").bind(id).first<{ origine: string }>();
+  if (!row) throw fail(404, "carte inconnue");
+  if (row.origine !== "site") throw fail(409, "seules les versions ajoutées depuis le site peuvent être retirées");
+  const used = await c.env.DB.prepare(
+    "SELECT 1 FROM owned WHERE card_id = ?1 UNION SELECT 1 FROM purchase WHERE card_id = ?1",
+  )
+    .bind(id)
+    .first();
+  if (used) throw fail(409, "version possédée ou commandée");
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM price_history WHERE card_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM price_cache WHERE card_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM cards WHERE id = ?").bind(id),
+    audit(c.env.DB, c.get("user"), "card.delete", id),
+  ]);
+  return c.json({ ok: true });
+});
+
+app.put("/api/cards/:id/alert", async (c) => {
+  const id = cardIdOf(c);
+  const { max_price } = parse(alertBody, await jsonBody(c));
+  await knownCard(c, id);
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO alert (card_id, max_price, created_at) VALUES (?1, ?2, ?3)
+       ON CONFLICT(card_id) DO UPDATE SET max_price = ?2`,
+    ).bind(id, max_price, new Date().toISOString()),
+    audit(c.env.DB, c.get("user"), "alert.set", `${id} ${max_price}`),
+  ]);
+  return c.json({ ok: true });
+});
+
+app.delete("/api/cards/:id/alert", async (c) => {
+  const id = cardIdOf(c);
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM alert WHERE card_id = ?").bind(id),
+    audit(c.env.DB, c.get("user"), "alert.delete", id),
+  ]);
+  return c.json({ ok: true });
+});
+
 /** Commandes : toutes (suivi des dépenses), les plus récentes d'abord. */
 app.get("/api/purchases", async (c) => {
   const { results } = await c.env.DB.prepare(
@@ -493,7 +597,7 @@ app.get("/api/species/:num/history", async (c) => {
 });
 
 app.get("/api/export", async (c) => {
-  const [owned, keep, wish, excluded, purchases] = await c.env.DB.batch([
+  const [owned, keep, wish, excluded, purchases, site, alerts] = await c.env.DB.batch([
     c.env.DB.prepare(
       "SELECT species_num, card_id, tier, note, condition, grade, doubles FROM owned ORDER BY species_num",
     ),
@@ -503,16 +607,23 @@ app.get("/api/export", async (c) => {
     c.env.DB.prepare(
       "SELECT card_id, state, price_paid, ordered_at, received_at, note FROM purchase ORDER BY ordered_at, id",
     ),
+    c.env.DB.prepare(
+      `SELECT id, species_num, nom_fr, set_name, numero, tier, id_product, code_cm, image FROM cards
+       WHERE origine = 'site' ORDER BY species_num, id`,
+    ),
+    c.env.DB.prepare("SELECT card_id, max_price FROM alert ORDER BY card_id"),
   ]);
   c.header("Content-Disposition", 'attachment; filename="pokedex-export.json"');
   return c.json({
-    version: 2,
+    version: 3,
     exported_at: new Date().toISOString(),
     owned: owned?.results ?? [],
     keep: keep?.results ?? [],
     wish: wish?.results ?? [],
     excluded: excluded?.results ?? [],
     purchases: purchases?.results ?? [],
+    cards_site: site?.results ?? [],
+    alerts: alerts?.results ?? [],
   });
 });
 
@@ -523,25 +634,52 @@ app.post("/api/import", async (c) => {
   const ownedNums = new Set(b.owned.map((o) => o.species_num));
   if (ownedNums.size !== b.owned.length) throw fail(400, "espèce en double");
   if (b.keep.some((k) => !ownedNums.has(k.species_num))) throw fail(400, "« keep » sur une espèce non possédée");
+  const db = c.env.DB;
+  // versions ajoutées depuis le site : celles de la sauvegarde comptent comme connues (une carte déjà au catalogue
+  // garde la version du catalogue)
+  const site = new Map((b.cards_site ?? []).map((k) => [k.id, k]));
+  const cardOf = async (id: string) => (await cardById(db, id)) ?? site.get(id) ?? null;
   for (const o of b.owned) {
     if (o.card_id) {
-      const row = await cardTier(c.env.DB, o.card_id, o.species_num);
-      if (!row || row.tier !== o.tier) throw fail(400, `carte ${o.card_id} invalide`);
+      const card = await cardOf(o.card_id);
+      if (card?.species_num !== o.species_num || card.tier !== o.tier) throw fail(400, `carte ${o.card_id} invalide`);
     }
   }
   for (const w of b.wish ?? [])
-    if (!(await cardTier(c.env.DB, w.card_id, w.species_num))) throw fail(400, `carte ${w.card_id} invalide`);
+    if ((await cardOf(w.card_id))?.species_num !== w.species_num) throw fail(400, `carte ${w.card_id} invalide`);
   const speciesOf = new Map<string, number>();
-  for (const id of new Set([...(b.excluded ?? []), ...(b.purchases ?? [])].map((x) => x.card_id))) {
-    const card = await cardById(c.env.DB, id);
+  for (const id of new Set(
+    [...(b.excluded ?? []), ...(b.purchases ?? []), ...(b.alerts ?? [])].map((x) => x.card_id),
+  )) {
+    const card = await cardOf(id);
     if (!card) throw fail(400, `carte ${id} invalide`);
     speciesOf.set(id, card.species_num);
   }
-  const db = c.env.DB;
+  // versions ajoutées depuis le site absentes de la sauvegarde et non référencées par elle : retirées
+  const keepIds = JSON.stringify([
+    ...site.keys(),
+    ...b.owned.flatMap((o) => (o.card_id ? [o.card_id] : [])),
+    ...(b.wish ?? []).map((w) => w.card_id),
+    ...speciesOf.keys(),
+  ]);
+  const gone = "SELECT id FROM cards WHERE origine = 'site' AND id NOT IN (SELECT value FROM json_each(?1))";
   const now = new Date().toISOString();
   // import = remplacement complet, atomique (une sauvegarde v1 laisse vides versions visées, écartées et commandes)
   await db.batch([
-    ...["keep", "wish", "excluded", "purchase", "owned"].map((t) => db.prepare(`DELETE FROM ${t}`)),
+    ...["keep", "wish", "excluded", "purchase", "owned", "alert"].map((t) => db.prepare(`DELETE FROM ${t}`)),
+    db.prepare(`DELETE FROM price_history WHERE card_id IN (${gone})`).bind(keepIds),
+    db.prepare(`DELETE FROM price_cache WHERE card_id IN (${gone})`).bind(keepIds),
+    db.prepare(`DELETE FROM cards WHERE id IN (${gone})`).bind(keepIds),
+    ...[...site.values()].map((k) =>
+      db
+        .prepare(
+          `INSERT INTO cards (id, species_num, nom_fr, set_name, numero, categorie, tier, confiance, id_product,
+             code_cm, nom_cm, langue, image, origine)
+           VALUES (?1, ?2, ?3, ?4, ?5, 'SITE', ?6, 'certain', ?7, ?8, NULL, 'fr', ?9, 'site')
+           ON CONFLICT(id) DO NOTHING`,
+        )
+        .bind(k.id, k.species_num, k.nom_fr, k.set_name, k.numero, k.tier, k.id_product, k.code_cm, k.image),
+    ),
     ...b.owned.map((o) =>
       db
         .prepare(
@@ -589,6 +727,14 @@ app.post("/api/import", async (c) => {
           p.received_at,
           p.note ?? null,
         ),
+    ),
+    ...(b.alerts ?? []).map((a) =>
+      db
+        .prepare(
+          `INSERT INTO alert (card_id, max_price, created_at) VALUES (?1, ?2, ?3)
+           ON CONFLICT(card_id) DO UPDATE SET max_price = ?2`,
+        )
+        .bind(a.card_id, a.max_price, now),
     ),
     audit(db, c.get("user"), "import", `${b.owned.length} possédées, ${b.keep.length} conservées`),
   ]);

@@ -1,10 +1,11 @@
 // Fiche d'une espèce : grande image, objectif, versions de la plus rare à la moins rare, prix et courbe,
-// version visée / écartée, commande en cours, actions sur le binder.
-import { api, type Card, type Species, type Tier } from "./api";
+// version visée / écartée, alerte de prix, commande en cours, actions sur le binder, versions ajoutées.
+import { api, type Candidate, type Card, type Species, type Tier } from "./api";
 import { sparkline } from "./chart";
 import { $, $as, action, eur, h, pad, toast } from "./dom";
 import { closeOrder, receptionChecklist } from "./purchase";
 import {
+  alertHit,
   byNum,
   cardImg,
   CATEGORIE_NOTE,
@@ -105,12 +106,77 @@ function badges(c: Card, s: Species): HTMLElement[] {
     );
   if (goodDeal(c))
     out.push(h("span", { class: "chip deal", title: "Au moins 10 % sous la moyenne 30 jours" }, "Bon prix"));
+  if (c.alert != null)
+    out.push(
+      alertHit(c)
+        ? h("span", { class: "chip alert hit", title: "Prix sous ton maximum" }, `🔔 Sous ${eur(c.alert)}`)
+        : h("span", { class: "chip alert", title: "Alerte de prix" }, `🔔 ≤ ${eur(c.alert)}`),
+    );
+  if (c.origine === "site") out.push(h("span", { class: "chip", title: "Version ajoutée depuis le site" }, "Ajoutée"));
   return out;
 }
+
+/** Après un enregistrement : referme le volet du bouton (sinon il resterait ouvert au rafraîchissement). */
+const shut = (btn: EventTarget | null) => {
+  (btn as HTMLElement | null)?.closest("details")?.removeAttribute("open");
+};
 
 /** Petit bouton d'action secondaire (texte). */
 const link = (label: string, onclick: (e: Event) => void, title?: string) =>
   h("button", { type: "button", class: "link", title, onclick }, label);
+
+/** Alerte de prix : prévenir quand la tendance passe sous un maximum (vue « Alertes de prix », tuile 🔔). */
+function alertForm(s: Species, c: Card): HTMLElement {
+  const id = encodeURIComponent(c.id);
+  const max = h("input", {
+    type: "number",
+    name: "max",
+    min: "0.01",
+    step: "0.01",
+    inputmode: "decimal",
+    // proposition : 10 % sous la tendance actuelle
+    value: String(c.alert ?? (c.price?.trend != null ? Math.floor(c.price.trend * 0.9) : "")),
+    "aria-label": `Prix maximum pour ${c.cm_label}`,
+  });
+  return h(
+    "details",
+    { class: "alert-d", "data-key": `alert:${c.id}` },
+    h("summary", {}, c.alert != null ? "Modifier l'alerte" : "Alerte de prix"),
+    h(
+      "div",
+      { class: "row" },
+      h("label", {}, "Prévenir sous ", max, " €"),
+      h(
+        "button",
+        {
+          type: "button",
+          onclick: (e: Event) => {
+            const btn = e.currentTarget;
+            write(btn, async () => {
+              const v = Math.round(Number(max.value) * 100) / 100;
+              if (!(v > 0)) throw new Error("Prix maximum invalide.");
+              await api(`/api/cards/${id}/alert`, { method: "PUT", json: { max_price: v } });
+              toast(`Alerte : ${c.cm_label} sous ${eur(v)}.`);
+              shut(btn);
+              await refresh(s.num);
+            });
+          },
+        },
+        "Enregistrer",
+      ),
+      c.alert != null
+        ? link("Retirer l'alerte", (e) => {
+            const btn = e.currentTarget;
+            write(btn, async () => {
+              await api(`/api/cards/${id}/alert`, { method: "DELETE" });
+              shut(btn);
+              await refresh(s.num);
+            });
+          })
+        : null,
+    ),
+  );
+}
 
 function secondary(s: Species, c: Card): HTMLElement {
   const acts: HTMLElement[] = [];
@@ -157,7 +223,20 @@ function secondary(s: Species, c: Card): HTMLElement {
           "Pas cette version (illustration, pas une vraie full art…)",
         ),
   );
-  return h("div", { class: "acts" }, ...acts);
+  // une version ajoutée depuis le site se retire (pas une carte du catalogue, ni la tienne, ni celle commandée)
+  if (c.origine === "site" && s.owned?.card_id !== c.id && s.order?.card_id !== c.id)
+    acts.push(
+      link("Retirer cette version", (e) => {
+        if (!confirm(`Retirer ${c.cm_label} de la liste des versions ?`)) return;
+        write(e.currentTarget, async () => {
+          await api(`/api/cards/${encodeURIComponent(c.id)}`, { method: "DELETE" });
+          toast(`${c.cm_label} retirée.`);
+          await refresh(s.num);
+        });
+      }),
+    );
+  // alerte : pas sur ta carte, ni sur une version écartée (ignorée par les alertes)
+  return h("div", { class: "acts" }, ...acts, s.owned?.card_id === c.id || c.excluded ? null : alertForm(s, c));
 }
 
 function priceBlock(s: Species, c: Card): HTMLElement {
@@ -293,7 +372,7 @@ function myCard(s: Species): HTMLElement | null {
     .join(" · ");
   return h(
     "details",
-    { class: "mycard" },
+    { class: "mycard", "data-key": "mycard" },
     h("summary", {}, `Ma carte${resume ? ` : ${resume}` : ""}`),
     h(
       "div",
@@ -308,7 +387,8 @@ function myCard(s: Species): HTMLElement | null {
       {
         type: "button",
         onclick: (e: Event) => {
-          write(e.currentTarget, async () => {
+          const btn = e.currentTarget;
+          write(btn, async () => {
             await api(`/api/species/${s.num}/details`, {
               method: "PUT",
               json: {
@@ -319,6 +399,7 @@ function myCard(s: Species): HTMLElement | null {
               },
             });
             toast("Ma carte : enregistré.");
+            shut(btn);
             await refresh(s.num);
           });
         },
@@ -424,7 +505,92 @@ function summary(s: Species, all: readonly Card[]): HTMLElement {
   );
 }
 
+/**
+ * Ajouter une version que le catalogue n'a pas : cartes TCGdex de l'espèce (recherche au premier dépliage),
+ * rareté choisie par Terence. La version ajoutée est gardée par les mises à jour du catalogue.
+ */
+function addVersion(s: Species): HTMLElement {
+  const tier = h(
+    "select",
+    { name: "tier", "aria-label": "Rareté de la version ajoutée" },
+    ...TIERS_DESC.map((t) => h("option", { value: t }, TIER_LABEL[t])),
+  );
+  tier.value = "IR";
+  const list = h("div", { class: "cands" });
+  const pick = (c: Candidate) =>
+    h(
+      "li",
+      {},
+      h(
+        "button",
+        {
+          type: "button",
+          class: "cand",
+          title: `${c.name} ${c.numero} (${c.id})`,
+          "aria-label": `Ajouter ${c.name} ${c.numero} (${c.id})`,
+          onclick: (e: Event) => {
+            const t = tier.value as Tier;
+            if (!confirm(`Ajouter ${c.name} ${c.numero} (${c.id}) comme ${TIER_LABEL[t]} ?`)) return;
+            const btn = e.currentTarget;
+            write(btn, async () => {
+              await api("/api/cards", { method: "POST", json: { species_num: s.num, id: c.id, tier: t } });
+              toast(`${c.name} ${c.numero} ajoutée (${t}).`);
+              shut(btn);
+              await refresh(s.num);
+            });
+          },
+        },
+        c.image
+          ? h("img", { src: c.image, alt: "", loading: "lazy", decoding: "async", width: 72, height: 100 })
+          : h("span", { class: "ph" }, "?"),
+        h("span", { class: "mut" }, c.id),
+      ),
+    );
+  const box = h(
+    "details",
+    { class: "addv", "data-key": "addv" },
+    h("summary", {}, "Ajouter une version manquante"),
+    h(
+      "p",
+      { class: "mut" },
+      "Cartes TCGdex de cette espèce absentes de la liste, les plus récentes d'abord. Choisis la rareté, puis la carte.",
+    ),
+    h("label", {}, "Rareté ", tier),
+    list,
+  );
+  let loaded = false;
+  box.addEventListener("toggle", () => {
+    if (!box.open || loaded) return;
+    loaded = true;
+    list.replaceChildren(h("p", { class: "mut", role: "status" }, "Recherche chez TCGdex…"));
+    api(`/api/species/${s.num}/candidates`)
+      .then((r) => r.json() as Promise<{ candidates: Candidate[] }>)
+      .then(({ candidates }) => {
+        list.replaceChildren(
+          candidates.length
+            ? h("ul", {}, ...candidates.map(pick))
+            : h("p", { class: "mut" }, "Aucune autre carte de cette espèce chez TCGdex."),
+        );
+      })
+      .catch(() => {
+        loaded = false;
+        list.replaceChildren(h("p", { class: "warn" }, "TCGdex ne répond pas : réessaie plus tard."));
+      });
+  });
+  return box;
+}
+
 function paint(s: Species, loading: boolean): void {
+  // même espèce redessinée (prix arrivés, modification) : les volets ouverts le restent
+  const body = $("detail-body");
+  const reopen =
+    current === s.num
+      ? new Set(
+          [...body.querySelectorAll<HTMLDetailsElement>("details[data-key]")]
+            .filter((d) => d.open)
+            .map((d) => d.dataset.key),
+        )
+      : new Set<string | undefined>();
   current = s.num;
   dialog().dataset.num = String(s.num);
   $("detail-title").textContent = `${pad(s.num)} ${s.nom_fr}`;
@@ -442,12 +608,12 @@ function paint(s: Species, loading: boolean): void {
     kids.push(
       h(
         "details",
-        { class: "excluded" },
+        { class: "excluded", "data-key": "excluded" },
         h("summary", {}, `Versions écartées (${out.length})`),
         h("ul", { class: "versions" }, ...out.map((c) => version(s, c, all))),
       ),
     );
-  const other = h("details", {}, h("summary", {}, "Ma carte n'est pas dans la liste"));
+  const other = h("details", { "data-key": "other" }, h("summary", {}, "Ma carte n'est pas dans la liste"));
   for (const t of ["FA", "IR", "SIR"] as Tier[])
     other.append(
       h(
@@ -464,7 +630,7 @@ function paint(s: Species, loading: boolean): void {
         `J'ai une ${TIER_LABEL[t]}`,
       ),
     );
-  kids.push(other);
+  kids.push(other, addVersion(s));
   if (s.owned)
     kids.push(
       h(
@@ -483,7 +649,9 @@ function paint(s: Species, loading: boolean): void {
         "Retirer du binder",
       ),
     );
-  $("detail-body").replaceChildren(...kids);
+  body.replaceChildren(...kids);
+  for (const d of body.querySelectorAll<HTMLDetailsElement>("details[data-key]"))
+    if (reopen.has(d.dataset.key)) d.open = true;
 }
 
 /** Ouvre (ou remplace) la fiche, puis actualise prix et historique. */
@@ -549,7 +717,9 @@ export function initDetail(cb: DetailHooks): void {
     hooks.closed();
   });
   dlg.addEventListener("keydown", (e) => {
-    if (e.target instanceof HTMLInputElement || e.altKey || e.ctrlKey || e.metaKey) return;
+    // flèches : espèce voisine, sauf dans un champ ou une liste déroulante
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
     if (e.key === "ArrowLeft") go(-1);
     else if (e.key === "ArrowRight") go(1);
     else return;

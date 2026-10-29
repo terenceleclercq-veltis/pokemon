@@ -25,6 +25,8 @@ export interface Card {
   /** Langue de la carte (code TCGdex) : « fr », ou une autre seulement si l'espèce n'a aucune IR/SIR en français. */
   langue: string;
   image: string | null;
+  /** « catalogue » (data/catalogue_fullart.csv) ou « site » (ajoutée par Terence depuis la fiche). */
+  origine?: string;
 }
 export interface Owned {
   species_num: number;

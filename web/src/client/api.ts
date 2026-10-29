@@ -29,6 +29,10 @@ export interface Card {
   langue: string;
   /** Version écartée : affichée, mais ignorée pour l'objectif et les achats. */
   excluded: boolean;
+  /** « catalogue », ou « site » : ajoutée depuis la fiche (retirable). */
+  origine?: string;
+  /** Alerte de prix : prix maximum souhaité, null sinon. */
+  alert?: number | null;
   image: string | null;
   price: Price | null;
 }
@@ -63,6 +67,14 @@ export interface Species {
   cards: Card[];
 }
 
+/** Carte TCGdex absente du catalogue, proposée dans « Ajouter une version ». */
+export interface Candidate {
+  id: string;
+  name: string;
+  numero: string;
+  image: string | null;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -82,6 +94,10 @@ export async function api(path: string, init: RequestInit & { json?: unknown } =
     headers,
     body: json !== undefined ? JSON.stringify(json) : rest.body,
     credentials: "same-origin",
+  }).catch((e: unknown) => {
+    // hors ligne (ou serveur injoignable) : message clair ; une annulation reste une annulation
+    if (e instanceof Error && e.name === "AbortError") throw e;
+    throw new ApiError("Pas de connexion : réessaie une fois en ligne.", 0);
   });
   if (!r.ok) {
     const msg = ((await r.json().catch(() => null)) as { error?: string } | null)?.error ?? r.statusText;
