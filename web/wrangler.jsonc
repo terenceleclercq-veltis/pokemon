@@ -28,7 +28,8 @@
       "migrations_dir": "migrations",
     },
   ],
-  "ratelimits": [{ "name": "RATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 120, "period": 60 } }],
+  // développement local et tests uniquement (les suites enchaînent beaucoup d'appels) ; staging et production : 120/min
+  "ratelimits": [{ "name": "RATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 2000, "period": 60 } }],
   "env": {
     "staging": {
       // Compte Cloudflare « pokemon » : servi sur workers.dev, protégé par une application Access.

@@ -1,0 +1,45 @@
+# Chaque jour : prix de nos cartes extraits du guide de prix public Cardmarket, publiés sur la branche
+# « donnees-prix » (jamais main : aucun déploiement déclenché). Le Worker lit ce fichier à son passage cron.
+name: Prix Cardmarket
+
+on:
+  schedule:
+    - cron: "23 4 * * *" # le guide est publié vers 2 h (heure belge)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prix
+  cancel-in-progress: false
+
+jobs:
+  prix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # pousse prix.json sur la branche donnees-prix uniquement
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - run: pip install --quiet requests==2.32.5
+      - run: python scripts/09_prix_cardmarket.py "$RUNNER_TEMP/prix.json"
+      - name: Publie sur la branche donnees-prix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          dir="$RUNNER_TEMP/donnees-prix"
+          if git fetch --depth=1 origin donnees-prix; then
+            git worktree add -B donnees-prix "$dir" FETCH_HEAD
+          else
+            git worktree add --orphan -b donnees-prix "$dir"
+          fi
+          cp "$RUNNER_TEMP/prix.json" "$dir/prix.json"
+          cd "$dir"
+          git add prix.json
+          if git diff --cached --quiet; then echo "prix inchangés"; exit 0; fi
+          git commit -q -m "Prix Cardmarket du $(date -u +%F)"
+          git push origin HEAD:donnees-prix

@@ -18,6 +18,11 @@ const ATTRS = new Set([
   "title",
   "value",
   "decoding",
+  "min",
+  "max",
+  "step",
+  "inputmode",
+  "placeholder",
 ]);
 const SAFE_URL = /^(https:|blob:|\/(?!\/))/; // ni javascript:, ni data:, ni //hôte
 

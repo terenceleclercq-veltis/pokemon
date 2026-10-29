@@ -1,7 +1,9 @@
-// Liste d'achat : cartes visées, de la moins chère à la plus chère, dans le budget ; « Achetée » les passe au binder.
+// Liste d'achat : cartes visées, de la moins chère à la plus chère, dans le budget ; commandes en cours.
+// « Commandée » la met en attente (hors liste), « Reçue » l'ajoute au binder ; le prix payé est mémorisé.
 import { api, type Tier } from "./api";
 import { $, $as, action, debounce, eur, h, toast } from "./dom";
-import { CATEGORIE_NOTE, langueOf } from "./state";
+import { closeOrder, order, receivedNow, receptionChecklist } from "./purchase";
+import { cardImg, CATEGORIE_NOTE, langueOf, shortDate, store } from "./state";
 
 interface BuyItem {
   num: number;
@@ -21,30 +23,32 @@ interface BuyItem {
 let items: BuyItem[] = [];
 let reload: () => Promise<void> = () => Promise.resolve();
 
-/** Déduit le prix du budget restant (champ facultatif) après un achat. */
+/** Déduit le prix du budget restant (champ facultatif) après une commande ou un achat. */
 function spend(amount: number | null): void {
   const input = $as("buy-budget", HTMLInputElement);
   if (!input.value || amount == null) return;
   input.value = String(Math.max(0, Math.round((Number(input.value) - amount) * 100) / 100));
 }
 
-/** Marque des cartes comme achetées : elles passent au binder et sortent de la liste. */
-async function markBought(list: readonly BuyItem[]): Promise<void> {
-  for (const it of list) {
-    await api(`/api/species/${it.num}/owned`, { method: "PUT", json: { card_id: it.card_id } });
-    spend(it.trend);
-  }
-  toast(
-    list.length === 1
-      ? `${list[0]?.espece ?? ""} marqué comme acheté.`
-      : `${list.length} cartes marquées comme achetées.`,
-  );
+async function after(msg: string): Promise<void> {
+  toast(msg);
   await reload();
   await renderBuylist();
 }
 
 function row(it: BuyItem): HTMLElement {
   const lang = langueOf(it.langue);
+  const paid = h("input", {
+    type: "number",
+    min: "0",
+    max: "100000",
+    step: "0.01",
+    inputmode: "decimal",
+    value: it.trend != null ? it.trend.toFixed(2) : "",
+    "aria-label": `Prix payé pour ${it.label} (€)`,
+    title: "Prix payé (€) : prérempli avec la tendance",
+  });
+  const price = () => (paid.value === "" ? null : Number(paid.value));
   return h(
     "li",
     { class: "buy" },
@@ -70,18 +74,101 @@ function row(it: BuyItem): HTMLElement {
     h(
       "div",
       { class: "pr" },
-      h("strong", { class: "price" }, eur(it.trend)),
+      paid,
       h(
-        "button",
-        {
-          type: "button",
-          "aria-label": `${it.label} achetée`,
-          onclick: (e: Event) => {
-            action(e.currentTarget as HTMLButtonElement, () => markBought([it]));
+        "div",
+        { class: "btns" },
+        h(
+          "button",
+          {
+            type: "button",
+            "aria-label": `${it.label} commandée`,
+            title: "Commandée : en attente de réception, hors liste d'achat",
+            onclick: (e: Event) => {
+              action(e.currentTarget as HTMLButtonElement, async () => {
+                await order(it.card_id, price());
+                spend(price());
+                await after(`${it.espece} : commande enregistrée.`);
+              });
+            },
           },
-        },
-        "Achetée",
+          "Commandée",
+        ),
+        h(
+          "button",
+          {
+            type: "button",
+            "aria-label": `${it.label} achetée`,
+            title: "Déjà en main : directement au binder",
+            onclick: (e: Event) => {
+              action(e.currentTarget as HTMLButtonElement, async () => {
+                await receivedNow(it.card_id, price());
+                spend(price());
+                await after(`${it.espece} marqué comme acheté.`);
+              });
+            },
+          },
+          "Reçue",
+        ),
       ),
+    ),
+  );
+}
+
+/** Commandes en cours (depuis le pokédex chargé) : vérification à réception ou annulation. */
+function orders(): HTMLElement | null {
+  const pending = store.data.flatMap((s) => {
+    const o = s.order;
+    const card = o && s.cards.find((c) => c.id === o.card_id);
+    return o && card ? [{ s, o, card }] : [];
+  });
+  if (!pending.length) return null;
+  return h(
+    "section",
+    { class: "orders" },
+    h("h3", {}, `En commande (${pending.length})`),
+    h(
+      "ul",
+      { class: "buylist" },
+      ...pending.map(({ s, o, card }) => {
+        const img = cardImg(card);
+        return h(
+          "li",
+          { class: "buy" },
+          img
+            ? h("img", { src: img, alt: "", loading: "lazy", decoding: "async", width: 44, height: 61 })
+            : h("span", { class: "ph" }, "?"),
+          h(
+            "div",
+            { class: "grow" },
+            h("strong", {}, card.cm_label),
+            h(
+              "div",
+              { class: "mut" },
+              `${s.nom_fr} · commandée le ${shortDate(o.ordered_at)}${o.price_paid != null ? ` · ${eur(o.price_paid)}` : ""}`,
+            ),
+            receptionChecklist(card, async () => {
+              await closeOrder(o.id, "recue");
+              await after(`${s.nom_fr} reçu : ajouté au binder.`);
+            }),
+          ),
+          h(
+            "button",
+            {
+              type: "button",
+              class: "link",
+              onclick: (e: Event) => {
+                if (!confirm("Annuler cette commande ?")) return;
+                action(e.currentTarget as HTMLButtonElement, async () => {
+                  await closeOrder(o.id, "annulee");
+                  await after("Commande annulée.");
+                });
+              },
+            },
+            "Annuler",
+          ),
+        );
+      }),
     ),
   );
 }
@@ -96,26 +183,13 @@ export async function renderBuylist(): Promise<void> {
     budget: number | null;
   };
   items = r.items;
-  const sum = `${r.items.length} carte${r.items.length > 1 ? "s" : ""} · ${eur(r.total)}${
+  const sum = `${r.items.length} carte${r.items.length > 1 ? "s" : ""} à acheter · ${eur(r.total)}${
     r.budget ? ` sur ${eur(r.budget)}` : ""
   } (tendance, hors port)`;
-  const all = r.items.length
-    ? h(
-        "button",
-        {
-          type: "button",
-          onclick: (e: Event) => {
-            if (!confirm(`Marquer les ${r.items.length} cartes comme achetées ?`)) return;
-            action(e.currentTarget as HTMLButtonElement, () => markBought(r.items));
-          },
-        },
-        "Tout marquer comme acheté",
-      )
-    : null;
   $("buylist").replaceChildren(
-    h("p", { class: "mut" }, sum),
-    h("ol", { class: "buylist" }, ...r.items.map(row)),
-    all ?? "",
+    ...[orders(), h("p", { class: "mut" }, sum), h("ol", { class: "buylist" }, ...r.items.map(row))].filter(
+      (x): x is HTMLElement => x !== null,
+    ),
   );
 }
 

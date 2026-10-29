@@ -49,12 +49,18 @@ export interface Visual {
   card?: Card;
 }
 
-/** Image d'une espèce : ta carte, sinon une SIR au hasard, sinon une full art au hasard, sinon l'illustration. */
+/**
+ * Image d'une espèce : ta carte, sinon la version que tu vises, sinon une SIR au hasard, sinon une full art au
+ * hasard (versions écartées exclues), sinon l'illustration du Pokémon.
+ */
 export function visualOf(s: Species): Visual {
   const mine = ownedCard(s);
   const mineSrc = mine && cardImg(mine);
   if (mine && mineSrc) return { src: mineSrc, kind: "owned", card: mine };
-  const shown = s.cards.filter((c) => cardImg(c));
+  const wished = s.wish ? s.cards.find((c) => c.id === s.wish) : undefined;
+  const wishedSrc = wished && cardImg(wished);
+  if (wished && wishedSrc) return { src: wishedSrc, kind: wished.tier === "SIR" ? "sir" : "fa", card: wished };
+  const shown = s.cards.filter((c) => !c.excluded && cardImg(c));
   const sir = shown.filter((c) => c.tier === "SIR");
   const pool = sir.length ? sir : shown.filter((c) => c.categorie !== "SHINY");
   if (pool.length) {
@@ -97,12 +103,15 @@ export function matches(s: Species, query: string): boolean {
   return q.split(/\s+/).every((w) => h.includes(w));
 }
 
-export type Filter = "all" | "manquante" | "a_verifier" | "complete" | "choisie" | "none";
+export type Filter = "all" | "manquante" | "a_verifier" | "complete" | "choisie" | "commande" | "none";
 export type Sort = "num" | "asc" | "desc";
 
 export function passes(s: Species, f: Filter): boolean {
   if (f === "all") return true;
   if (f === "none") return s.cards.length === 0;
+  if (f === "commande") return s.order !== null;
+  // une espèce commandée n'est plus « à acheter » ni « à améliorer »
+  if (f === "manquante" || f === "a_verifier") return s.cards.length > 0 && s.status === f && !s.order;
   return s.cards.length > 0 && s.status === f;
 }
 
@@ -122,10 +131,20 @@ export function stats(data: Species[]) {
   const count = (f: (s: Species) => boolean) => data.filter(f).length;
   return {
     done: count((s) => s.status === "complete" || s.status === "choisie"),
-    toBuy: count((s) => s.status === "manquante" && s.cards.length > 0),
-    toUpgrade: count((s) => s.status === "a_verifier"),
+    toBuy: count((s) => s.status === "manquante" && s.cards.length > 0 && !s.order),
+    toUpgrade: count((s) => s.status === "a_verifier" && !s.order),
+    ordered: count((s) => s.order !== null),
     none: count((s) => s.cards.length === 0),
-    /** Reste à payer pour atteindre l'objectif partout (cartes au prix connu). */
-    remaining: data.reduce((t, s) => t + (targetPrice(s) ?? 0), 0),
+    /** Reste à payer pour atteindre l'objectif partout (cartes au prix connu, hors commandes en cours). */
+    remaining: data.reduce((t, s) => t + (s.order ? 0 : (targetPrice(s) ?? 0)), 0),
   };
 }
+
+/** Bon prix : la tendance est au moins 10 % sous la moyenne des ventes sur 30 jours. */
+export const goodDeal = (c: Card) => {
+  const p = c.price;
+  return p?.trend != null && p.avg30 != null && p.avg30 > 0 && p.trend <= p.avg30 * 0.9;
+};
+
+/** « 29/10 » depuis une date ISO. */
+export const shortDate = (iso: string | undefined | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : "");

@@ -55,10 +55,11 @@ def main():
                 q(r["categorie_fullart"]), q(TIER.get(r["categorie_fullart"], "FA")), q(r["confiance"]), prod or "NULL",
                 q(r.get("code_cardmarket")), q(r.get("nom_cardmarket")), q(langue)))
     keep = ",".join(q(i) for i in ids)
-    out.append(f"DELETE FROM price_cache WHERE card_id NOT IN ({keep}) AND card_id NOT IN "
-               "(SELECT card_id FROM owned WHERE card_id IS NOT NULL);")
-    out.append(f"DELETE FROM cards WHERE id NOT IN ({keep}) AND id NOT IN "
-               "(SELECT card_id FROM owned WHERE card_id IS NOT NULL);")
+    # une carte sortie du catalogue reste si elle est possédée ou dans l'historique des commandes (clés étrangères) ;
+    # versions visées et écartées suivent la carte (ON DELETE CASCADE)
+    used = "(SELECT card_id FROM owned WHERE card_id IS NOT NULL UNION SELECT card_id FROM purchase)"
+    out.append(f"DELETE FROM price_cache WHERE card_id NOT IN ({keep}) AND card_id NOT IN {used};")
+    out.append(f"DELETE FROM cards WHERE id NOT IN ({keep}) AND id NOT IN {used};")
     (ROOT / "web" / "seed.sql").write_text("\n".join(out) + "\n", encoding="utf-8")
     print(len(ids), "cartes dans web/seed.sql, dont", len(formes), "formes,", len(autres), "dans une autre langue,",
           len(shiny), "chromatiques")

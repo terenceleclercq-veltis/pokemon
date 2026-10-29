@@ -9,7 +9,7 @@ export interface ViewState {
   p: number | null;
 }
 
-const FILTERS: readonly Filter[] = ["all", "manquante", "a_verifier", "complete", "choisie", "none"];
+const FILTERS: readonly Filter[] = ["all", "manquante", "a_verifier", "complete", "choisie", "commande", "none"];
 const SORTS: readonly Sort[] = ["num", "asc", "desc"];
 
 export function readState(): ViewState {

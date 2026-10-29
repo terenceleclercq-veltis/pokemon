@@ -3,7 +3,9 @@
 Site personnel : suivi des 151 espèces en grille illustrée (ta carte, sinon une SIR ou une full art tirée au hasard,
 sinon l'illustration du Pokémon), prix en direct, objectif « la SIR si elle existe » (carte visée, reste à payer, liste
 d'achat avec améliorations), visionneuse haute définition, tri par prix et vues rapides (« la moins chère à acheter »),
-choix « je préfère la mienne » qui arrête la vérification.
+choix « je préfère la mienne » qui arrête la vérification. Prix du guide officiel Cardmarket (moyenne 30 jours, repère
+« bon prix », courbe), version visée ou écartée par espèce, commandes suivies jusqu'à réception (vérification de la
+carte, prix payé), sauvegarde JSON complète.
 
 ## Pile technique et pourquoi
 
@@ -45,6 +47,6 @@ Le déploiement passe exclusivement par la CI : voir [`docs/gitops.md`](../docs/
 
 ## Limites connues
 
-- Prix = tendance Cardmarket relevée par TCGdex (tous états et langues), cache 15 min ; les cartes absentes de TCGdex
-  (promos récentes) n'ont pas encore de prix ni d'image.
+- Prix = tendance du guide de prix Cardmarket (quotidien, tous états et langues) ; TCGdex sert de repli et fournit les
+  images. Une carte absente de TCGdex (promo récente) a un prix mais pas encore d'image.
 - « Plus rare » = ordre Full art < IR < SIR ; l'objectif est la rareté la plus haute disponible pour l'espèce.

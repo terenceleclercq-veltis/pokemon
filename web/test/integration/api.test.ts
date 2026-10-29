@@ -2,12 +2,16 @@ import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetJwksCache } from "../../src/worker/auth";
 import { scheduledRefresh } from "../../src/worker/cron";
+import { applyPriceGuide, FEED_URL } from "../../src/worker/feed";
 import { call, mockOutbound, ORIGIN } from "../helpers";
 
 interface SpeciesDto {
   num: number;
   status: string;
   target: string | null;
+  wish: string | null;
+  order: { id: number; card_id: string } | null;
+  owned: { card_id: string | null } | null;
   higher: string[];
   options: { tier: string; card_id: string }[];
   cards: {
@@ -17,7 +21,8 @@ interface SpeciesDto {
     cm_url: string | null;
     tier: string;
     langue: string;
-    price: { trend: number } | null;
+    excluded: boolean;
+    price: { trend: number; source?: string; avg30?: number | null } | null;
   }[];
 }
 const pokedex = async () => (await (await call("/api/pokedex")).json<{ species: SpeciesDto[] }>()).species;
@@ -292,6 +297,141 @@ describe("liste d'envies, export/import", () => {
       headers: { "Content-Type": "application/json" },
     });
     expect(r.status).toBe(413);
+  });
+});
+
+describe("version visée, versions écartées", () => {
+  it("viser une version précise : elle devient la carte visée", async () => {
+    expect((await species(1)).target).toBe("sv03.5-198"); // SIR, seule de sa rareté
+    expect((await call("/api/species/1/wish", { method: "PUT", json: { card_id: "xy1-141" } })).status).toBe(200);
+    const s = await species(1);
+    expect(s.wish).toBe("xy1-141");
+    expect(s.target).toBe("xy1-141");
+    expect((await call("/api/species/1/wish", { method: "PUT", json: { card_id: "sv03.5-167" } })).status).toBe(400);
+    await call("/api/species/1/wish", { method: "DELETE" });
+    expect((await species(1)).target).toBe("sv03.5-198");
+  });
+  it("écarter la SIR : l'objectif redescend à l'IR, et l'IR possédée suffit", async () => {
+    await call("/api/species/1/wish", { method: "PUT", json: { card_id: "sv03.5-198" } });
+    expect((await call("/api/cards/sv03.5-198/excluded", { method: "PUT", json: { reason: "pas fan" } })).status).toBe(
+      200,
+    );
+    let s = await species(1);
+    expect(s.wish).toBeNull(); // une version écartée ne peut plus être visée
+    expect(s.target).toBe("sv03.5-166");
+    expect(s.cards.find((c) => c.id === "sv03.5-198")?.excluded).toBe(true);
+    await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } });
+    expect((await species(1)).status).toBe("complete");
+    await call("/api/cards/sv03.5-198/excluded", { method: "DELETE" });
+    s = await species(1);
+    expect(s.status).toBe("a_verifier");
+    expect((await call("/api/cards/inconnue-1/excluded", { method: "PUT", json: {} })).status).toBe(400);
+  });
+});
+
+describe("commandes", () => {
+  type Purchases = { purchases: { id: number; state: string; price_paid: number | null; espece: string }[] };
+  it("commandée -> hors liste d'achat -> reçue : passe au binder avec le prix payé", async () => {
+    expect(
+      (await call("/api/purchases", { method: "POST", json: { card_id: "sv03.5-167", price_paid: 18.5 } })).status,
+    ).toBe(201);
+    const s = await species(2);
+    expect(s.order?.card_id).toBe("sv03.5-167");
+    expect(s.status).toBe("manquante");
+    const buy = await (await call("/api/buylist")).json<{ items: { espece: string }[] }>();
+    expect(buy.items.map((i) => i.espece)).not.toContain("Herbizarre");
+    // une seule commande en cours par espèce
+    expect((await call("/api/purchases", { method: "POST", json: { card_id: "sv03.5-167" } })).status).toBe(409);
+    const { purchases } = await (await call("/api/purchases")).json<Purchases>();
+    expect(purchases[0]).toMatchObject({ state: "commandee", price_paid: 18.5, espece: "Herbizarre" });
+    const id = purchases[0]!.id;
+    expect((await call(`/api/purchases/${id}`, { method: "PATCH", json: { state: "recue" } })).status).toBe(200);
+    expect((await species(2)).status).toBe("complete");
+    expect((await species(2)).order).toBeNull();
+    expect((await call(`/api/purchases/${id}`, { method: "PATCH", json: { state: "annulee" } })).status).toBe(409);
+  });
+  it("achat déjà en main : directement au binder ; annulation possible avant réception", async () => {
+    await call("/api/purchases", { method: "POST", json: { card_id: "sv03.5-198", price_paid: 80, received: true } });
+    expect((await species(1)).owned?.card_id).toBe("sv03.5-198");
+    await call("/api/purchases", { method: "POST", json: { card_id: "sv03.5-167" } });
+    const { purchases } = await (await call("/api/purchases")).json<Purchases>();
+    const pending = purchases.find((p) => p.state === "commandee")!;
+    await call(`/api/purchases/${pending.id}`, { method: "PATCH", json: { state: "annulee" } });
+    expect((await species(2)).order).toBeNull();
+    expect((await species(2)).status).toBe("manquante");
+    expect((await call("/api/purchases/999", { method: "PATCH", json: { state: "recue" } })).status).toBe(404);
+    expect((await call("/api/purchases", { method: "POST", json: { card_id: "x", price_paid: -1 } })).status).toBe(400);
+  });
+});
+
+describe("sauvegarde v2 et historique", () => {
+  it("export/import : versions visées, écartées et commandes comprises", async () => {
+    await call("/api/species/1/wish", { method: "PUT", json: { card_id: "xy1-141" } });
+    await call("/api/cards/sv03.5-198/excluded", { method: "PUT", json: { reason: "pas fan" } });
+    await call("/api/purchases", { method: "POST", json: { card_id: "sv03.5-167", price_paid: 12 } });
+    const dump = await (
+      await call("/api/export")
+    ).json<{
+      version: number;
+      wish: unknown[];
+      excluded: unknown[];
+      purchases: unknown[];
+    }>();
+    expect([dump.version, dump.wish.length, dump.excluded.length, dump.purchases.length]).toEqual([2, 1, 1, 1]);
+    await call("/api/species/1/wish", { method: "DELETE" });
+    await call("/api/cards/sv03.5-198/excluded", { method: "DELETE" });
+    expect((await call("/api/import", { method: "POST", json: dump })).status).toBe(200);
+    const s = await species(1);
+    expect(s.wish).toBe("xy1-141");
+    expect(s.cards.find((c) => c.id === "sv03.5-198")?.excluded).toBe(true);
+    expect((await species(2)).order?.card_id).toBe("sv03.5-167");
+    // carte inconnue dans une commande : rien n'est modifié
+    const bad = { ...dump, purchases: [{ ...(dump.purchases[0] as object), card_id: "inconnue-1" }] };
+    expect((await call("/api/import", { method: "POST", json: bad })).status).toBe(400);
+    expect((await species(1)).wish).toBe("xy1-141");
+  });
+  it("historique des prix par carte", async () => {
+    await call("/api/species/1/prices");
+    const h = await (await call("/api/species/1/history")).json<Record<string, [string, number][]>>();
+    expect(h["sv03.5-166"]?.[0]?.[1]).toBe(40);
+    expect((await call("/api/species/0/history")).status).toBe(400);
+  });
+});
+
+describe("guide de prix Cardmarket", () => {
+  const feed = (guide: string, trend: number) => ({
+    version: 1,
+    guide,
+    generated_at: "2026-10-30T04:30:00+00:00",
+    prices: { "733761": { trend, low: 30, avg1: null, avg7: 60, avg30: 66.95 } },
+  });
+  const serve = (body: unknown) =>
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url === FEED_URL) return Promise.resolve(Response.json(body));
+      return Promise.reject(new Error(`réseau interdit en test : ${url}`));
+    });
+  it("applique le guide une seule fois, avec moyenne 30 jours et historique", async () => {
+    serve(feed("2026-10-30T02:50:00+0100", 69.53));
+    expect(await applyPriceGuide(env.DB)).toBe(1);
+    expect(await applyPriceGuide(env.DB)).toBe(0); // même guide : rien à refaire
+    vi.restoreAllMocks();
+    mockOutbound();
+    const p = (await species(1)).cards.find((c) => c.id === "sv03.5-166")?.price;
+    expect(p).toMatchObject({ trend: 69.53, avg30: 66.95, source: "cardmarket" });
+    const h = await env.DB.prepare("SELECT day, trend FROM price_history WHERE card_id = 'sv03.5-166'").all();
+    expect(h.results).toEqual([{ day: "2026-10-30", trend: 69.53 }]);
+  });
+  it("un guide récent n'est pas écrasé par TCGdex ; un guide invalide est ignoré", async () => {
+    serve(feed("2026-10-30T02:50:00+0100", 69.53));
+    await applyPriceGuide(env.DB);
+    vi.restoreAllMocks();
+    mockOutbound({ "sv03.5-166": 40 });
+    const live = await (await call("/api/species/1/prices")).json<Record<string, { trend: number; source: string }>>();
+    expect(live["sv03.5-166"]).toMatchObject({ trend: 69.53, source: "cardmarket" });
+    vi.restoreAllMocks();
+    serve({ version: 1, guide: "x", prices: {} });
+    expect(await applyPriceGuide(env.DB)).toBe(0);
   });
 });
 

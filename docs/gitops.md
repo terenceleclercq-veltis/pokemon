@@ -69,6 +69,12 @@ toutes en « Promo » sans distinguer le style.
 Les Character Rare (catégorie `CHR`, full art avec dresseur) comptent comme full art. Ces lignes sont ajoutées à la
 main (comme les promos IR) : relancer `04_catalogue.py` les effacerait.
 
+**Prix** : `.github/workflows/prix.yml` lance chaque matin `scripts/09_prix_cardmarket.py`, qui extrait du guide de
+prix public Cardmarket (~16 Mo) les prix de nos cartes et les publie (`prix.json`, ~20 Ko) sur la branche
+`donnees-prix` — jamais `main`, donc aucun déploiement. Le Worker (`src/worker/feed.ts`, cron) lit ce fichier et
+l'applique une fois par guide (date mémorisée dans la table `settings`, clé `prix_cardmarket`) ; TCGdex ne sert plus
+que de repli (prix plus vieux que 48 h) et pour les images.
+
 **Veille** : `.github/workflows/veille-catalogue.yml` lance chaque lundi `scripts/08_veille_catalogue.py`, qui
 ouvre ou met à jour l'issue « Veille catalogue : nouvelles IR/SIR ». Il parcourt carte par carte les extensions
 françaises de moins de 400 jours et les sets de promos (`svp`, `mep`) : les cartes récentes n'ont souvent pas de

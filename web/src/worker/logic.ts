@@ -42,9 +42,23 @@ export interface Price {
   trend: number | null;
   low: number | null;
   avg7: number | null;
+  /** Moyenne des ventes sur 30 jours (repère « bon prix »). */
+  avg30?: number | null;
   fetched_at?: string;
+  /** « cardmarket » : guide de prix quotidien (prioritaire) ; « tcgdex » : relevé de repli. */
+  source?: string;
 }
 export type Status = "manquante" | "complete" | "a_verifier" | "choisie";
+export interface Purchase {
+  id: number;
+  species_num: number;
+  card_id: string;
+  state: "commandee" | "recue" | "annulee";
+  price_paid: number | null;
+  ordered_at: string;
+  received_at: string | null;
+  note: string | null;
+}
 
 /** Carte la moins chère de chaque tier (prix inconnu = dernier choix). */
 export function cheapestPerTier(cards: readonly Card[], prices: Readonly<Record<string, Price>>) {
@@ -65,15 +79,19 @@ export function objectiveTier(cards: readonly Card[]): Tier | null {
 }
 
 /**
- * Carte visée : la moins chère de la rareté visée, tant que l'espèce n'est pas terminée
- * (manquante, ou possédée dans une rareté inférieure sans « je préfère la mienne »).
+ * Carte visée, tant que l'espèce n'est pas terminée (manquante, ou possédée dans une rareté inférieure sans
+ * « je préfère la mienne ») : la version choisie par Terence si elle existe, sinon la moins chère de la rareté
+ * la plus haute. `cards` ne contient que les versions retenues (hors versions écartées).
  */
 export function targetCard(
   cards: readonly Card[],
   status: Status,
   prices: Readonly<Record<string, Price>>,
+  wishId?: string | null,
 ): Card | null {
   if (status !== "manquante" && status !== "a_verifier") return null;
+  const wished = wishId ? cards.find((c) => c.id === wishId) : undefined;
+  if (wished) return wished;
   const tier = objectiveTier(cards);
   return tier ? (cheapestPerTier(cards, prices)[tier] ?? null) : null;
 }

@@ -9,12 +9,14 @@ async function mockOutbound(page: Page) {
       body: '<svg xmlns="http://www.w3.org/2000/svg" width="5" height="7"><rect width="5" height="7" fill="#c33"/></svg>',
     }),
   );
+  // pokédex lu une seule fois par test (moins d'appels à l'API locale)
+  let pokedex: Promise<{ species: { num: number; cards: { id: string }[] }[] }> | undefined;
   await page.route("**/api/species/*/prices", async (route) => {
     const num = Number(/species\/(\d+)\//.exec(route.request().url())?.[1]);
-    const r = await page.request.get(`/api/pokedex`);
-    const s = ((await r.json()) as { species: { num: number; cards: { id: string }[] }[] }).species.find(
-      (x) => x.num === num,
-    );
+    pokedex ??= page.request
+      .get(`/api/pokedex`)
+      .then((r) => r.json() as Promise<{ species: { num: number; cards: { id: string }[] }[] }>);
+    const s = (await pokedex).species.find((x) => x.num === num);
     const body = Object.fromEntries(
       (s?.cards ?? []).map((c, i) => [
         c.id,
@@ -232,6 +234,46 @@ test("liste d'achat : objectif, liens exacts et « Achetée »", async ({ page }
   const dl = page.waitForEvent("download");
   await dlg.getByRole("button", { name: "Exporter (CSV)" }).click();
   expect((await dl).suggestedFilename()).toMatch(/^liste-achat-\d{4}-\d{2}-\d{2}\.csv$/);
+});
+
+test("commande : en attente, vérification à réception, puis binder", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Liste d'achat" }).click();
+  const dlg = page.locator("#buy");
+  const first = dlg.locator("#buylist ol li").first();
+  const label = (await first.locator("a").textContent()) ?? "";
+  await first.getByRole("button", { name: /commandée$/ }).click();
+  await expect(page.locator(".toast")).toContainText("commande enregistrée");
+  const orders = dlg.locator("section.orders");
+  await expect(orders).toContainText(label);
+  await orders.getByText("Reçue : vérifier la carte").click();
+  const confirmBtn = orders.getByRole("button", { name: "Confirmer la réception" });
+  await expect(confirmBtn).toBeDisabled();
+  for (const box of await orders.getByRole("checkbox").all()) await box.check();
+  await confirmBtn.click();
+  await expect(page.locator(".toast").last()).toContainText("ajouté au binder");
+  await expect(dlg.locator("section.orders")).toHaveCount(0);
+});
+
+test("fiche : écarter une version, la réintégrer, viser une version", async ({ page }) => {
+  // état connu : Florizarre pas dans le binder (d'autres tests achètent des cartes)
+  await page.request.delete("/api/species/3/owned", { headers: { "X-Requested-With": "pokedex" } });
+  await page.goto("/#p=3");
+  const dlg = page.locator("#detail");
+  await expect(dlg.locator(".price").first()).toContainText("€");
+  // une version qui n'est pas « la mienne » (d'autres tests ont pu acheter une carte de l'espèce)
+  const opt = dlg.locator(".versions .opt:not(.mine)").first();
+  const name = (await opt.locator(".code").textContent()) ?? "";
+  await opt.getByRole("button", { name: "Écarter" }).click();
+  const out = dlg.locator("details.excluded");
+  await expect(out).toContainText(`Versions écartées (1)`);
+  await out.locator("summary").click();
+  await out.getByRole("button", { name: "Réintégrer" }).click();
+  await expect(dlg.locator("details.excluded")).toHaveCount(0);
+  await dlg.locator(".versions .opt", { hasText: name }).getByRole("button", { name: "Viser cette version" }).click();
+  await expect(dlg.locator(".chip.goal", { hasText: "ton choix" })).toBeVisible();
+  await dlg.getByRole("button", { name: "Ne plus viser" }).click();
+  await expect(dlg.locator(".chip.goal", { hasText: "ton choix" })).toHaveCount(0);
 });
 
 test("réglages : liste d'envies et export", async ({ page, context, isMobile }) => {

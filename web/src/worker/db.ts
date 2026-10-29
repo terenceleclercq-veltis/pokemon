@@ -1,5 +1,5 @@
 // Accès D1 : requêtes paramétrées uniquement.
-import type { Card, Keep, Owned, Price, Tier } from "./logic";
+import type { Card, Keep, Owned, Price, Purchase, Tier } from "./logic";
 
 export interface Species {
   num: number;
@@ -8,12 +8,15 @@ export interface Species {
 }
 
 export async function loadAll(db: D1Database) {
-  const [sp, cards, owned, keep, prices] = await db.batch([
+  const [sp, cards, owned, keep, prices, wish, excluded, orders] = await db.batch([
     db.prepare("SELECT num, nom_fr, nom_en FROM species ORDER BY num"),
     db.prepare("SELECT * FROM cards ORDER BY species_num, tier, id"),
     db.prepare("SELECT * FROM owned"),
     db.prepare("SELECT * FROM keep"),
-    db.prepare("SELECT card_id, trend, low, avg7, fetched_at FROM price_cache"),
+    db.prepare("SELECT card_id, trend, low, avg7, avg30, fetched_at, source FROM price_cache"),
+    db.prepare("SELECT species_num, card_id FROM wish"),
+    db.prepare("SELECT card_id FROM excluded"),
+    db.prepare("SELECT * FROM purchase WHERE state = 'commandee' ORDER BY ordered_at"),
   ]);
   return {
     species: (sp?.results ?? []) as Species[],
@@ -21,6 +24,9 @@ export async function loadAll(db: D1Database) {
     owned: (owned?.results ?? []) as Owned[],
     keep: (keep?.results ?? []) as Keep[],
     prices: (prices?.results ?? []) as (Price & { card_id: string })[],
+    wish: (wish?.results ?? []) as { species_num: number; card_id: string }[],
+    excluded: (excluded?.results ?? []) as { card_id: string }[],
+    orders: (orders?.results ?? []) as Purchase[],
   };
 }
 
@@ -29,6 +35,13 @@ export const cardsOf = (db: D1Database, num: number) =>
 
 export const cardTier = (db: D1Database, id: string, num: number) =>
   db.prepare("SELECT tier FROM cards WHERE id = ? AND species_num = ?").bind(id, num).first<{ tier: Tier }>();
+
+export const cardById = (db: D1Database, id: string) =>
+  db.prepare("SELECT id, species_num, tier FROM cards WHERE id = ?").bind(id).first<{
+    id: string;
+    species_num: number;
+    tier: Tier;
+  }>();
 
 /** Cartes à surveiller : espèces manquantes, ou possédées avec version plus rare et sans décision. Plus anciens prix d'abord. */
 export const staleWatchlist = (db: D1Database, limit: number) =>

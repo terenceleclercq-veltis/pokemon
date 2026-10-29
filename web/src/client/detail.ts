@@ -1,12 +1,17 @@
-// Fiche d'une espèce : grande image, objectif, versions de la plus rare à la moins rare, actions sur le binder.
+// Fiche d'une espèce : grande image, objectif, versions de la plus rare à la moins rare, prix et courbe,
+// version visée / écartée, commande en cours, actions sur le binder.
 import { api, type Card, type Species, type Tier } from "./api";
+import { sparkline } from "./chart";
 import { $, $as, action, eur, h, pad, toast } from "./dom";
+import { closeOrder, receptionChecklist } from "./purchase";
 import {
   byNum,
   cardImg,
   CATEGORIE_NOTE,
+  goodDeal,
   langueOf,
   ownedCard,
+  shortDate,
   targetOf,
   TIER_LABEL,
   TIERS_DESC,
@@ -25,9 +30,13 @@ export interface DetailHooks {
   closed: () => void;
 }
 
+type History = Record<string, [string, number][]>;
+
 let hooks: DetailHooks;
 let abort: AbortController | undefined;
 let current: number | null = null;
+/** Historique des prix de l'espèce affichée (chargé à l'ouverture). */
+let history: History = {};
 
 const dialog = () => $as("detail", HTMLDialogElement);
 export const openNum = () => (dialog().open ? current : null);
@@ -70,9 +79,9 @@ const write = (btn: EventTarget | null, fn: () => Promise<void>) => {
 };
 
 /** Versions dans l'ordre d'affichage : SIR, IR puis full art ; chaque rareté de la moins chère à la plus chère. */
-function ordered(s: Species): Card[] {
+function ordered(cards: readonly Card[]): Card[] {
   return TIERS_DESC.flatMap((t) =>
-    s.cards.filter((c) => c.tier === t).sort((a, b) => (a.price?.trend ?? Infinity) - (b.price?.trend ?? Infinity)),
+    cards.filter((c) => c.tier === t).sort((a, b) => (a.price?.trend ?? Infinity) - (b.price?.trend ?? Infinity)),
   );
 }
 
@@ -85,8 +94,102 @@ function badges(c: Card, s: Species): HTMLElement[] {
   if (c.confiance === "probable")
     out.push(h("span", { class: "chip", title: "Style full art non vérifié" }, "probable"));
   if (s.target === c.id)
-    out.push(h("span", { class: "chip goal", title: "La moins chère de la rareté visée" }, "Visée"));
+    out.push(
+      h(
+        "span",
+        { class: "chip goal", title: s.wish === c.id ? "Version choisie" : "La moins chère de la rareté visée" },
+        s.wish === c.id ? "Visée (ton choix)" : "Visée (la moins chère)",
+      ),
+    );
+  if (goodDeal(c))
+    out.push(h("span", { class: "chip deal", title: "Au moins 10 % sous la moyenne 30 jours" }, "Bon prix"));
   return out;
+}
+
+/** Petit bouton d'action secondaire (texte). */
+const link = (label: string, onclick: (e: Event) => void, title?: string) =>
+  h("button", { type: "button", class: "link", title, onclick }, label);
+
+function secondary(s: Species, c: Card): HTMLElement {
+  const acts: HTMLElement[] = [];
+  // viser une version n'a de sens que s'il reste quelque chose à acheter pour l'espèce
+  const open = s.status === "manquante" || s.status === "a_verifier";
+  if (open && !c.excluded && s.owned?.card_id !== c.id)
+    acts.push(
+      s.wish === c.id
+        ? link("Ne plus viser", (e) => {
+            write(e.currentTarget, async () => {
+              await api(`/api/species/${s.num}/wish`, { method: "DELETE" });
+              await refresh(s.num);
+            });
+          })
+        : link(
+            "Viser cette version",
+            (e) => {
+              write(e.currentTarget, async () => {
+                await api(`/api/species/${s.num}/wish`, { method: "PUT", json: { card_id: c.id } });
+                toast(`${c.cm_label} : version visée.`);
+                await refresh(s.num);
+              });
+            },
+            "Liste d'achat et reste à payer suivront cette version",
+          ),
+    );
+  acts.push(
+    c.excluded
+      ? link("Réintégrer", (e) => {
+          write(e.currentTarget, async () => {
+            await api(`/api/cards/${encodeURIComponent(c.id)}/excluded`, { method: "DELETE" });
+            await refresh(s.num);
+          });
+        })
+      : link(
+          "Écarter",
+          (e) => {
+            write(e.currentTarget, async () => {
+              await api(`/api/cards/${encodeURIComponent(c.id)}/excluded`, { method: "PUT", json: {} });
+              toast(`${c.cm_label} écartée : ignorée pour l'objectif et les achats.`);
+              await refresh(s.num);
+            });
+          },
+          "Pas cette version (illustration, pas une vraie full art…)",
+        ),
+  );
+  return h("div", { class: "acts" }, ...acts);
+}
+
+function priceBlock(s: Species, c: Card): HTMLElement {
+  const mine = s.owned?.card_id === c.id;
+  const p = c.price;
+  const curve = sparkline(history[c.id] ?? []);
+  return h(
+    "div",
+    { class: "pr" },
+    h("div", { class: "price" }, eur(p?.trend)),
+    h("div", { class: "mut", title: "Offre la moins chère, tous états" }, `dès ${eur(p?.low)}`),
+    p?.avg30 != null
+      ? h("div", { class: "mut", title: "Moyenne des ventes sur 30 jours" }, `moy. 30 j ${eur(p.avg30)}`)
+      : null,
+    curve,
+    mine
+      ? h("span", { class: "badge" }, "La mienne")
+      : c.excluded
+        ? null
+        : h(
+            "button",
+            {
+              type: "button",
+              onclick: (e: Event) => {
+                write(e.currentTarget, async () => {
+                  await api(`/api/species/${s.num}/owned`, { method: "PUT", json: { card_id: c.id } });
+                  toast(`${s.nom_fr} ajouté au binder.`);
+                  await refresh(s.num);
+                });
+              },
+            },
+            "Je l'ai",
+          ),
+  );
 }
 
 function version(s: Species, c: Card, all: readonly Card[]): HTMLElement {
@@ -94,7 +197,7 @@ function version(s: Species, c: Card, all: readonly Card[]): HTMLElement {
   const img = cardImg(c);
   return h(
     "li",
-    { class: `opt${mine ? " mine" : ""}` },
+    { class: `opt${mine ? " mine" : ""}${c.excluded ? " out" : ""}` },
     h(
       "button",
       {
@@ -116,29 +219,9 @@ function version(s: Species, c: Card, all: readonly Card[]): HTMLElement {
       h("div", { class: "chips" }, ...badges(c, s)),
       h("div", { class: "mut" }, `${c.set_name} · ${c.numero}`),
       c.cm_url ? cmLink(c.cm_url, c.cm_label) : null,
+      secondary(s, c),
     ),
-    h(
-      "div",
-      { class: "pr" },
-      h("div", { class: "price" }, eur(c.price?.trend)),
-      h("div", { class: "mut", title: "Offre la moins chère, tous états" }, `dès ${eur(c.price?.low)}`),
-      mine
-        ? h("span", { class: "badge" }, "La mienne")
-        : h(
-            "button",
-            {
-              type: "button",
-              onclick: (e: Event) => {
-                write(e.currentTarget, async () => {
-                  await api(`/api/species/${s.num}/owned`, { method: "PUT", json: { card_id: c.id } });
-                  toast(`${s.nom_fr} ajouté au binder.`);
-                  await refresh(s.num);
-                });
-              },
-            },
-            "Je l'ai",
-          ),
-    ),
+    priceBlock(s, c),
   );
 }
 
@@ -146,6 +229,35 @@ async function refresh(num: number): Promise<void> {
   await hooks.reload();
   const fresh = byNum(num);
   if (fresh && current === num) paint(fresh, false);
+}
+
+/** Commande en cours : date, prix payé, vérification à réception, annulation. */
+function orderBlock(s: Species): HTMLElement | null {
+  const o = s.order;
+  const card = o && s.cards.find((c) => c.id === o.card_id);
+  if (!o || !card) return null;
+  return h(
+    "div",
+    { class: "order" },
+    h(
+      "p",
+      {},
+      h("strong", {}, "Commandée"),
+      ` le ${shortDate(o.ordered_at)} : ${card.cm_label}${o.price_paid != null ? `, ${eur(o.price_paid)}` : ""}.`,
+    ),
+    receptionChecklist(card, async () => {
+      await closeOrder(o.id, "recue");
+      toast(`${s.nom_fr} reçu : ajouté au binder.`);
+      await refresh(s.num);
+    }),
+    link("Annuler la commande", (e) => {
+      if (!confirm("Annuler cette commande ?")) return;
+      write(e.currentTarget, async () => {
+        await closeOrder(o.id, "annulee");
+        await refresh(s.num);
+      });
+    }),
+  );
 }
 
 function summary(s: Species, all: readonly Card[]): HTMLElement {
@@ -161,15 +273,23 @@ function summary(s: Species, all: readonly Card[]): HTMLElement {
         : "Pas encore dans le binder.",
     ),
   ];
-  if (goal)
+  if (goal && !s.order)
     info.push(
       h(
         "p",
         { class: "goal-line" },
-        `Objectif : ${TIER_LABEL[goal.tier]} — la moins chère, ${goal.cm_label} : `,
+        `Objectif : ${TIER_LABEL[goal.tier]} — ${s.wish === goal.id ? "ton choix" : "la moins chère"}, ${goal.cm_label} : `,
         h("strong", {}, eur(goal.price?.trend)),
+        goal.price?.fetched_at
+          ? h(
+              "span",
+              { class: "mut" },
+              ` (prix du ${shortDate(goal.price.fetched_at)}, ${goal.price.source === "cardmarket" ? "guide Cardmarket" : "TCGdex"})`,
+            )
+          : null,
       ),
     );
+  info.push(orderBlock(s));
   if (s.status === "a_verifier")
     info.push(
       h("p", { class: "warn" }, `${s.higher.length} version(s) plus rare(s) existe(nt).`),
@@ -238,14 +358,25 @@ function paint(s: Species, loading: boolean): void {
   current = s.num;
   dialog().dataset.num = String(s.num);
   $("detail-title").textContent = `${pad(s.num)} ${s.nom_fr}`;
-  const all = ordered(s);
+  const kept = ordered(s.cards.filter((c) => !c.excluded));
+  const out = ordered(s.cards.filter((c) => c.excluded));
+  const all = [...kept, ...out];
   const kids: Node[] = [summary(s, all)];
   if (loading) kids.push(h("p", { class: "mut", role: "status" }, "Actualisation des prix…"));
   for (const tier of TIERS_DESC) {
-    const cs = all.filter((c) => c.tier === tier);
+    const cs = kept.filter((c) => c.tier === tier);
     if (!cs.length) continue;
     kids.push(h("h3", {}, TIER_LABEL[tier]), h("ul", { class: "versions" }, ...cs.map((c) => version(s, c, all))));
   }
+  if (out.length)
+    kids.push(
+      h(
+        "details",
+        { class: "excluded" },
+        h("summary", {}, `Versions écartées (${out.length})`),
+        h("ul", { class: "versions" }, ...out.map((c) => version(s, c, all))),
+      ),
+    );
   const other = h("details", {}, h("summary", {}, "Ma carte n'est pas dans la liste"));
   for (const t of ["FA", "IR", "SIR"] as Tier[])
     other.append(
@@ -285,23 +416,28 @@ function paint(s: Species, loading: boolean): void {
   $("detail-body").replaceChildren(...kids);
 }
 
-/** Ouvre (ou remplace) la fiche, puis actualise les prix en direct. */
+/** Ouvre (ou remplace) la fiche, puis actualise prix et historique. */
 export async function openDetail(num: number): Promise<void> {
   const s = byNum(num);
   if (!s) return;
   abort?.abort();
   abort = new AbortController();
+  const { signal } = abort;
   const dlg = dialog();
+  history = {};
   paint(s, true);
   $("detail-body").scrollTop = 0;
   if (!dlg.open) dlg.showModal();
   hooks.shown(num);
   try {
-    const live = (await (await api(`/api/species/${num}/prices`, { signal: abort.signal })).json()) as Record<
-      string,
-      Card["price"]
-    >;
+    const [live, hist] = await Promise.all([
+      api(`/api/species/${num}/prices`, { signal }).then((r) => r.json() as Promise<Record<string, Card["price"]>>),
+      api(`/api/species/${num}/history`, { signal })
+        .then((r) => r.json() as Promise<History>)
+        .catch((): History => ({})),
+    ]);
     for (const c of s.cards) if (live[c.id]) c.price = { ...c.price, ...live[c.id]! };
+    history = hist;
     if (dlg.open && current === num) paint(s, false);
   } catch (e) {
     if ((e as Error).name === "AbortError") return;
