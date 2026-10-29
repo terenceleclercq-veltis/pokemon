@@ -7,7 +7,7 @@ import csv
 
 from common import DATA, ROOT
 
-TIER = {"IR": "IR", "SIR": "SIR"}  # tout le reste (UR_ex, FA_*, TG, GG, SHINY_*) = 'FA'
+TIER = {"IR": "IR", "SIR": "SIR", "PROMO_IR": "IR"}  # promo au style IR = IR ; le reste (UR_ex, FA_*, TG, GG, SHINY_*) = FA
 
 
 def q(v):
