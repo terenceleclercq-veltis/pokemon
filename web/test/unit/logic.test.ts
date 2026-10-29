@@ -11,6 +11,7 @@ const card = (id: string, tier: Card["tier"]): Card => ({
   categorie: tier,
   confiance: "certain",
   id_product: null,
+  code_cm: null,
   image: null,
 });
 const cards = [card("fa", "FA"), card("ir1", "IR"), card("ir2", "IR"), card("sir", "SIR")];
@@ -60,5 +61,9 @@ describe("cheapestPerTier", () => {
 
 describe("wantsLine", () => {
   it("formate et neutralise les caractères de contrôle", () =>
-    expect(wantsLine({ nom_fr: "Mew\nex", set_name: "151", numero: "205" })).toBe("1 Mew ex (151 205)"));
+    expect(wantsLine({ nom_fr: "Mew\nex", set_name: "151", numero: "205", code_cm: null })).toBe("1 Mew ex (151 205)"));
+  it("reprend le code Cardmarket quand il est connu", () =>
+    expect(wantsLine({ nom_fr: "Bulbizarre", set_name: "151", numero: "166", code_cm: "MEW 166" })).toBe(
+      "1 Bulbizarre (MEW 166)",
+    ));
 });

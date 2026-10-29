@@ -20,6 +20,31 @@ const cheapest = (s: Species) =>
     .sort((a, b) => a - b)[0];
 
 /** Action utilisateur : désactive le bouton pendant l'appel, toute erreur devient un message (aucun rejet non géré). */
+/** Code Cardmarket (« MEW 166 ») : un clic copie « Bulbizarre (MEW 166) », le libellé exact de la recherche. */
+function cmCode(nom: string, code: string): HTMLButtonElement {
+  const label = `${nom} (${code})`;
+  return h(
+    "button",
+    {
+      type: "button",
+      class: "code",
+      title: "Copier pour la recherche Cardmarket",
+      "aria-label": `Copier « ${label} »`,
+      onclick: () => {
+        navigator.clipboard.writeText(label).then(
+          () => {
+            toast(`Copié : ${label}`);
+          },
+          () => {
+            toast(`À rechercher sur Cardmarket : ${label}`);
+          },
+        );
+      },
+    },
+    code,
+  );
+}
+
 function action(btn: HTMLButtonElement | null, fn: () => Promise<void>): void {
   if (btn) btn.disabled = true;
   fn()
@@ -197,7 +222,7 @@ function paint(s: Species, loading: boolean): void {
           h(
             "div",
             { class: "grow" },
-            h("div", {}, c.nom_fr),
+            h("div", {}, c.nom_fr, c.code_cm ? cmCode(c.nom_fr, c.code_cm) : null),
             h(
               "div",
               { class: "mut" },

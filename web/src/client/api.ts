@@ -11,6 +11,7 @@ export interface Card {
   nom_fr: string;
   set_name: string;
   numero: string;
+  code_cm: string | null;
   tier: Tier;
   confiance: string;
   image: string | null;
