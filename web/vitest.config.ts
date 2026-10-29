@@ -16,7 +16,6 @@ export default defineConfig({
           ACCESS_AUD: "aud-test",
           ALLOWED_EMAIL: "terence@example.com",
           CI_SERVICE_TOKEN_ID: "ci-token.access",
-          ENC_KEY: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
         },
       },
     }),

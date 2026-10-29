@@ -25,10 +25,14 @@ export interface Card {
   image: string | null;
   price: Price | null;
 }
+export type Status = "manquante" | "complete" | "a_verifier" | "choisie";
 export interface Species {
   num: number;
   nom_fr: string;
-  status: "manquante" | "complete" | "a_verifier" | "choisie";
+  nom_en: string;
+  status: Status;
+  /** Carte à acheter pour atteindre l'objectif (rareté la plus haute), null si l'espèce est terminée. */
+  target: string | null;
   owned: { card_id: string | null; tier: Tier; note: string | null } | null;
   keep: { decided_at: string } | null;
   higher: string[];

@@ -7,6 +7,7 @@ import { call, mockOutbound, ORIGIN } from "../helpers";
 interface SpeciesDto {
   num: number;
   status: string;
+  target: string | null;
   higher: string[];
   options: { tier: string; card_id: string }[];
   cards: {
@@ -218,11 +219,38 @@ describe("liste d'envies, export/import", () => {
         label: "Herbizarre (MEW 167)",
         url: "https://www.cardmarket.com/fr/Pokemon/Products?idProduct=733762",
         langue: "fr",
+        tier: "IR",
+        categorie: "IR",
+        image: "https://assets.tcgdex.net/fr/x/sv03.5-167/low.webp",
+        upgrade: false,
         trend: 20,
       },
     ]);
     expect(within.total).toBe(20);
     expect((await call("/api/buylist?budget=-1")).status).toBe(400);
+  });
+  it("objectif : la rareté la plus haute, améliorations comprises", async () => {
+    await call("/api/species/1/prices");
+    await call("/api/species/2/prices");
+    expect((await species(1)).target).toBe("sv03.5-198"); // SIR visée
+    expect((await species(151)).target).toBeNull(); // aucune carte
+    await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } }); // IR possédée, SIR existe
+    type Buy = { items: { espece: string; card_id: string; upgrade: boolean }[] };
+    const buy = await (await call("/api/buylist")).json<Buy>(); // objectif par défaut
+    expect(buy.items.map((i) => [i.espece, i.card_id, i.upgrade])).toEqual([
+      ["Herbizarre", "sv03.5-167", false],
+      ["Bulbizarre", "sv03.5-198", true],
+    ]);
+    // les autres modes ne listent que les espèces manquantes
+    expect((await (await call("/api/buylist?tier=cheapest")).json<Buy>()).items.map((i) => i.espece)).toEqual([
+      "Herbizarre",
+    ]);
+    await call("/api/species/1/keep", { method: "PUT", json: {} }); // « je préfère la mienne »
+    expect((await species(1)).target).toBeNull();
+    expect((await call("/api/wants")).status).toBe(200);
+  });
+  it("l'ancienne API Cardmarket n'existe plus", async () => {
+    expect((await call("/api/cardmarket")).status).toBe(404);
   });
   it("placeholders : une fiche par espèce manquante, ou les 151", async () => {
     type Ph = { items: { num: number; nom_fr: string }[] };
@@ -264,42 +292,6 @@ describe("liste d'envies, export/import", () => {
       headers: { "Content-Type": "application/json" },
     });
     expect(r.status).toBe(413);
-  });
-});
-
-describe("compte Cardmarket", () => {
-  const creds = {
-    appToken: "app-token",
-    appSecret: "app-secret-xyz",
-    accessToken: "acc-token",
-    accessSecret: "acc-secret-xyz",
-  };
-  it("liaison : chiffré en base, jamais renvoyé", async () => {
-    expect((await call("/api/cardmarket", { method: "PUT", json: creds })).status).toBe(200);
-    const stored = await env.DB.prepare("SELECT value FROM settings WHERE key = 'cardmarket'").first<{
-      value: string;
-    }>();
-    expect(stored?.value).toMatch(/^v1\./);
-    expect(stored?.value).not.toContain("app-secret-xyz");
-    const st = await (await call("/api/cardmarket")).text();
-    expect(st).toContain('"linked":true');
-    expect(st).not.toContain("secret");
-  });
-  it("test de connexion : signe la requête vers api.cardmarket.com uniquement", async () => {
-    await call("/api/cardmarket", { method: "PUT", json: creds });
-    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ account: { username: "terence" } }));
-    const r = await (await call("/api/cardmarket/test", { method: "POST" })).json<{ username: string }>();
-    expect(r.username).toBe("terence");
-    const [url, init] = spy.mock.calls.at(-1)!;
-    expect(url instanceof Request ? url.url : (url as string)).toBe(
-      "https://api.cardmarket.com/ws/v2.0/output.json/account",
-    );
-    expect(new Headers((init as RequestInit).headers).get("Authorization")).toMatch(/^OAuth realm=/);
-  });
-  it("déliaison", async () => {
-    await call("/api/cardmarket", { method: "PUT", json: creds });
-    await call("/api/cardmarket", { method: "DELETE" });
-    expect(await (await call("/api/cardmarket")).json()).toEqual({ linked: false, updated_at: null });
   });
 });
 

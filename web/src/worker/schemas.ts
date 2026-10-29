@@ -18,7 +18,7 @@ export const speciesParam = z.object({
 });
 export const ownedBody = z.union([z.strictObject({ card_id: cardId, note }), z.strictObject({ tier, note })]);
 export const keepBody = z.strictObject({ note });
-const wantTier = z._default(z.enum([...TIERS, "cheapest", "sir_ir"]), "cheapest");
+const wantTier = z._default(z.enum([...TIERS, "cheapest", "sir_ir", "objectif"]), "objectif");
 export const wantsQuery = z.object({ tier: wantTier });
 export const placeholdersQuery = z.object({
   scope: z._default(z.enum(["missing", "all"]), "missing"),
@@ -32,15 +32,6 @@ export const importBody = z.strictObject({
   owned: z.array(z.object({ species_num: species, card_id: z.nullable(cardId), tier, note })).check(z.maxLength(151)),
   keep: z.array(z.object({ species_num: species, note })).check(z.maxLength(151)),
 });
-const credential = z.string().check(z.trim(), z.minLength(6), z.maxLength(200), z.regex(/^[\x21-\x7e]+$/));
-export const cardmarketBody = z.strictObject({
-  appToken: credential,
-  appSecret: credential,
-  accessToken: credential,
-  accessSecret: credential,
-});
-export type CardmarketCreds = z.infer<typeof cardmarketBody>;
-
 /** Réponse TCGdex (source externe : jamais crue sur parole). */
 const num = z.nullish(z.number().check(z.gte(0)));
 export const tcgdexCard = z.object({
