@@ -138,6 +138,7 @@ export const tcgdexSet = z.object({
 
 export const tcgdexCard = z.object({
   image: z.optional(z.url({ protocol: /^https$/, hostname: /^assets\.tcgdex\.net$/ })),
+  illustrator: z.optional(z.string().check(z.trim(), z.maxLength(80))),
   pricing: z.nullish(
     z.object({
       cardmarket: z.nullish(

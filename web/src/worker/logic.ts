@@ -27,6 +27,8 @@ export interface Card {
   image: string | null;
   /** « catalogue » (data/catalogue_fullart.csv) ou « site » (ajoutée par Terence depuis la fiche). */
   origine?: string;
+  /** Illustrateur relevé chez TCGdex ; null tant qu'il n'est pas relevé, '' s'il est inconnu. */
+  illustrateur?: string | null;
 }
 export interface Owned {
   species_num: number;

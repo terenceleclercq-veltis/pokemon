@@ -86,14 +86,21 @@ function haystack(s: Species): string {
   let h = haystacks.get(s);
   if (h === undefined) {
     h = fold(
-      [s.nom_fr, s.nom_en, ...s.cards.flatMap((c) => [c.nom_fr, c.set_name, c.code_cm ?? "", c.cm_label])].join(" "),
+      [
+        s.nom_fr,
+        s.nom_en,
+        ...s.cards.flatMap((c) => [c.nom_fr, c.set_name, c.code_cm ?? "", c.cm_label, c.illustrateur ?? ""]),
+      ].join(" "),
     );
     haystacks.set(s, h);
   }
   return h;
 }
 
-/** « 25 » ou « #025 » : numéro exact ; sinon chaque mot doit figurer dans le nom (FR ou anglais) ou une carte. */
+/**
+ * « 25 » ou « #025 » : numéro exact ; sinon chaque mot doit figurer dans le nom (FR ou anglais) ou une carte
+ * (nom, extension, code Cardmarket, illustrateur).
+ */
 export function matches(s: Species, query: string): boolean {
   const q = fold(query.trim());
   if (!q) return true;

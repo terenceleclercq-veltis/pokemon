@@ -31,6 +31,8 @@ export interface DetailHooks {
   shown: (num: number) => void;
   /** La fiche se ferme. */
   closed: () => void;
+  /** Recherche dans la grille (fiche fermée) : autres cartes d'un illustrateur. */
+  search: (q: string) => void;
 }
 
 type History = Record<string, [string, number][]>;
@@ -298,7 +300,25 @@ function version(s: Species, c: Card, all: readonly Card[]): HTMLElement {
       { class: "grow" },
       h("div", { class: "name" }, c.nom_fr, c.code_cm ? cmCode(c.code_cm, c.cm_label) : null),
       h("div", { class: "chips" }, ...badges(c, s)),
-      h("div", { class: "mut" }, `${c.set_name} · ${c.numero}`),
+      h(
+        "div",
+        { class: "mut" },
+        `${c.set_name} · ${c.numero}`,
+        c.illustrateur
+          ? h(
+              "span",
+              {},
+              " · ill. ",
+              link(
+                c.illustrateur,
+                () => {
+                  hooks.search(c.illustrateur ?? "");
+                },
+                `Espèces avec une carte de ${c.illustrateur}`,
+              ),
+            )
+          : null,
+      ),
       c.cm_url ? cmLink(c.cm_url, c.cm_label) : null,
       secondary(s, c),
     ),

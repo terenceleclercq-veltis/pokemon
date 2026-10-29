@@ -120,6 +120,15 @@ function bindNavigation(): void {
         pushed = true;
       } else replaceState(view);
     },
+    search: (q) => {
+      // la recherche remplace l'entrée d'historique de la fiche : closed() n'a plus rien à défaire
+      pushed = false;
+      view = { ...view, p: null, q, f: "all", v: "grille" };
+      replaceState(view);
+      closeDetail();
+      showControls();
+      render();
+    },
     closed: () => {
       if (view.p === null) return;
       view = { ...view, p: null };

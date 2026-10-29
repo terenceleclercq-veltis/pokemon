@@ -33,6 +33,8 @@ export interface Card {
   origine?: string;
   /** Alerte de prix : prix maximum souhaité, null sinon. */
   alert?: number | null;
+  /** Illustrateur (TCGdex) ; null tant qu'il n'est pas relevé, vide s'il est inconnu. */
+  illustrateur?: string | null;
   image: string | null;
   price: Price | null;
 }
