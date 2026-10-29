@@ -1,0 +1,11 @@
+{
+  "name": "pokedex-kanto",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
+  "d1_databases": [{ "binding": "DB", "database_name": "pokedex", "database_id": "REMPLACER_APRES_wrangler_d1_create" }],
+  "triggers": { "crons": ["17 4 * * *"] },
+  "vars": { "ACCESS_TEAM": "REMPLACER_nom_equipe_zero_trust", "ACCESS_AUD": "REMPLACER_aud_application_access", "ALLOWED_EMAIL": "terence.leclercq@veltis.be" },
+  "workers_dev": false,
+  "preview_urls": false
+}

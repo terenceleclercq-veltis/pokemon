@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pokédex Kanto full art</title>
+<link rel="stylesheet" href="/style.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<header>
+  <h1>Pokédex Kanto <small>full art</small></h1>
+  <div id="progress" aria-live="polite"></div>
+  <div class="bar"><div id="bar-fill"></div></div>
+  <div class="tools">
+    <input id="q" type="search" placeholder="Rechercher (nom ou n°)" aria-label="Rechercher">
+    <select id="filter" aria-label="Filtre">
+      <option value="all">Tout</option><option value="manquante">Manquantes</option>
+      <option value="a_verifier">À vérifier</option><option value="complete">Complètes</option>
+      <option value="choisie">Choix conservé</option><option value="none">Sans full art FR</option>
+    </select>
+    <button id="btn-refresh">Actualiser les prix</button>
+    <button id="btn-settings">Réglages</button>
+  </div>
+</header>
+<main><div id="grid" role="list"></div></main>
+
+<dialog id="detail"><div id="detail-body"></div><button class="close" data-close>Fermer</button></dialog>
+<dialog id="settings">
+  <h2>Réglages</h2>
+  <section><h3>Liste d'envies Cardmarket</h3>
+    <p>Copie les espèces manquantes à coller dans Cardmarket → Wants.</p>
+    <select id="wants-tier"><option value="cheapest">Le moins cher</option><option value="FA">Full art</option><option value="IR">IR</option><option value="SIR">SIR</option></select>
+    <button id="btn-wants">Copier</button> <span id="wants-msg"></span></section>
+  <section><h3>Sauvegarde</h3>
+    <button id="btn-export">Exporter (JSON)</button>
+    <label class="file">Importer <input id="file-import" type="file" accept="application/json"></label> <span id="io-msg"></span></section>
+  <section><h3>Compte Cardmarket</h3>
+    <p id="cm-state"></p>
+    <p class="warn">Lecture seule. Les clés sont chiffrées côté serveur et ne sont jamais réaffichées. L'accès à l'API Cardmarket est restreint : liaison non testée.</p>
+    <form id="cm-form" autocomplete="off">
+      <input name="appToken" placeholder="App token" required><input name="appSecret" placeholder="App secret" type="password" required>
+      <input name="accessToken" placeholder="Access token" required><input name="accessSecret" placeholder="Access token secret" type="password" required>
+      <button type="submit">Lier</button> <button type="button" id="cm-test">Tester</button> <button type="button" id="cm-unlink">Délier</button>
+    </form><span id="cm-msg"></span></section>
+  <button class="close" data-close>Fermer</button>
+</dialog>
+</body>
+</html>
