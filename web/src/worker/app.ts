@@ -4,7 +4,7 @@ import { HTTPException } from "hono/http-exception";
 import { secureHeaders } from "hono/secure-headers";
 import type * as z from "zod/mini";
 import { devBypass, verifyAccessJwt } from "./auth";
-import { audit, cardTier, cardsOf, loadAll } from "./db";
+import { audit, cardById, cardTier, cardsOf, loadAll } from "./db";
 import {
   cheapestPerTier,
   higherThan,
@@ -17,9 +17,24 @@ import {
   cardmarketUrl,
   type Card,
   type Price,
+  type Purchase,
 } from "./logic";
 import { refreshPrices } from "./prices";
-import { importBody, keepBody, ownedBody, speciesParam, wantsQuery, buylistQuery, placeholdersQuery } from "./schemas";
+import {
+  buylistQuery,
+  cardParam,
+  excludeBody,
+  importBody,
+  keepBody,
+  ownedBody,
+  placeholdersQuery,
+  purchaseBody,
+  purchaseParam,
+  purchasePatch,
+  speciesParam,
+  wantsQuery,
+  wishBody,
+} from "./schemas";
 
 type AppEnv = { Bindings: Env; Variables: { user: string } };
 type Ctx = Context<AppEnv>;
@@ -103,24 +118,34 @@ async function pokedex(db: D1Database) {
   for (const c of all.cards) bySpecies.set(c.species_num, [...(bySpecies.get(c.species_num) ?? []), c]);
   const owned = new Map(all.owned.map((o) => [o.species_num, o]));
   const keep = new Map(all.keep.map((k) => [k.species_num, k]));
+  const wish = new Map(all.wish.map((w) => [w.species_num, w.card_id]));
+  const excluded = new Set(all.excluded.map((e) => e.card_id));
+  const orders = new Map<number, Purchase>(all.orders.map((o) => [o.species_num, o]));
   return all.species.map((s) => {
     const cards = bySpecies.get(s.num) ?? [];
+    // versions écartées : affichées, mais ignorées pour l'objectif, le statut et les achats
+    const active = cards.filter((c) => !excluded.has(c.id));
     const o = owned.get(s.num);
-    const best = cheapestPerTier(cards, price);
-    const status = speciesStatus(cards, o, keep.get(s.num));
+    const best = cheapestPerTier(active, price);
+    const status = speciesStatus(active, o, keep.get(s.num));
     return {
       num: s.num,
       nom_fr: s.nom_fr,
       nom_en: s.nom_en,
       status,
-      /** Carte à acheter pour atteindre l'objectif (rareté la plus haute), null si l'espèce est terminée. */
-      target: targetCard(cards, status, price)?.id ?? null,
+      /** Carte à acheter pour atteindre l'objectif (choix de Terence, sinon rareté la plus haute), null si terminée. */
+      target: targetCard(active, status, price, wish.get(s.num))?.id ?? null,
+      /** Version choisie par Terence (« viser cette version »), null sinon. */
+      wish: wish.get(s.num) ?? null,
+      /** Commande en cours pour cette espèce. */
+      order: orders.get(s.num) ?? null,
       owned: o ?? null,
       keep: keep.get(s.num) ?? null,
-      higher: o ? higherThan(cards, o).map((c) => c.id) : [],
+      higher: o ? higherThan(active, o).map((c) => c.id) : [],
       options: TIERS.flatMap((t) => (best[t] ? [{ tier: t, label: TIER_LABEL[t], card_id: best[t].id }] : [])),
       cards: cards.map((c) => ({
         ...c,
+        excluded: excluded.has(c.id),
         cm_label: cardmarketLabel(c),
         cm_url: c.id_product ? cardmarketUrl(c.id_product) : null,
         price: price[c.id] ?? null,
@@ -231,6 +256,130 @@ app.delete("/api/species/:num/keep", async (c) => {
   return c.json({ ok: true });
 });
 
+const cardIdOf = (c: Ctx) => parse(cardParam, { id: c.req.param("id") }).id;
+
+/** Une carte du catalogue, sinon 400. */
+async function knownCard(c: Ctx, id: string) {
+  const card = await cardById(c.env.DB, id);
+  if (!card) throw fail(400, "carte inconnue");
+  return card;
+}
+
+/** Ta carte pour l'espèce (même effet que « Je l'ai »), dans le batch de l'appelant. */
+const setOwned = (db: D1Database, num: number, cardId: string, tier: string, at: string) => [
+  db
+    .prepare(
+      `INSERT INTO owned (species_num, card_id, tier, note, updated_at) VALUES (?1, ?2, ?3, NULL, ?4)
+       ON CONFLICT(species_num) DO UPDATE SET card_id = ?2, tier = ?3, updated_at = ?4`,
+    )
+    .bind(num, cardId, tier, at),
+  db.prepare("DELETE FROM keep WHERE species_num = ?").bind(num),
+];
+
+app.put("/api/species/:num/wish", async (c) => {
+  const num = speciesNum(c);
+  const { card_id } = parse(wishBody, await jsonBody(c));
+  if (!(await cardTier(c.env.DB, card_id, num))) throw fail(400, "carte inconnue pour cette espèce");
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO wish (species_num, card_id, updated_at) VALUES (?1, ?2, ?3)
+       ON CONFLICT(species_num) DO UPDATE SET card_id = ?2, updated_at = ?3`,
+    ).bind(num, card_id, new Date().toISOString()),
+    audit(c.env.DB, c.get("user"), "wish.set", `${num} ${card_id}`),
+  ]);
+  return c.json({ ok: true });
+});
+
+app.delete("/api/species/:num/wish", async (c) => {
+  const num = speciesNum(c);
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM wish WHERE species_num = ?").bind(num),
+    audit(c.env.DB, c.get("user"), "wish.delete", num),
+  ]);
+  return c.json({ ok: true });
+});
+
+app.put("/api/cards/:id/excluded", async (c) => {
+  const id = cardIdOf(c);
+  const { reason } = parse(excludeBody, await jsonBody(c));
+  await knownCard(c, id);
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO excluded (card_id, reason, excluded_at) VALUES (?1, ?2, ?3)
+       ON CONFLICT(card_id) DO UPDATE SET reason = ?2, excluded_at = ?3`,
+    ).bind(id, reason ?? null, new Date().toISOString()),
+    // une version écartée ne peut plus être visée
+    c.env.DB.prepare("DELETE FROM wish WHERE card_id = ?").bind(id),
+    audit(c.env.DB, c.get("user"), "excluded.set", id),
+  ]);
+  return c.json({ ok: true });
+});
+
+app.delete("/api/cards/:id/excluded", async (c) => {
+  const id = cardIdOf(c);
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM excluded WHERE card_id = ?").bind(id),
+    audit(c.env.DB, c.get("user"), "excluded.delete", id),
+  ]);
+  return c.json({ ok: true });
+});
+
+/** Commandes : toutes (suivi des dépenses), les plus récentes d'abord. */
+app.get("/api/purchases", async (c) => {
+  const { results } = await c.env.DB.prepare(
+    `SELECT p.*, c.nom_fr, c.set_name, c.numero, c.code_cm, c.tier, s.nom_fr AS espece
+     FROM purchase p JOIN cards c ON c.id = p.card_id JOIN species s ON s.num = p.species_num
+     ORDER BY p.ordered_at DESC LIMIT 500`,
+  ).all();
+  return c.json({ purchases: results });
+});
+
+app.post("/api/purchases", async (c) => {
+  const body = parse(purchaseBody, await jsonBody(c));
+  const card = await knownCard(c, body.card_id);
+  const pending = await c.env.DB.prepare("SELECT id FROM purchase WHERE species_num = ? AND state = 'commandee'")
+    .bind(card.species_num)
+    .first();
+  if (pending) throw fail(409, "commande déjà en cours pour cette espèce");
+  const now = new Date().toISOString();
+  const received = body.received === true;
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO purchase (species_num, card_id, state, price_paid, ordered_at, received_at, note)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+    ).bind(
+      card.species_num,
+      card.id,
+      received ? "recue" : "commandee",
+      body.price_paid ?? null,
+      now,
+      received ? now : null,
+      body.note ?? null,
+    ),
+    ...(received ? setOwned(c.env.DB, card.species_num, card.id, card.tier, now) : []),
+    audit(c.env.DB, c.get("user"), received ? "purchase.received" : "purchase.ordered", card.id),
+  ]);
+  return c.json({ ok: true }, 201);
+});
+
+app.patch("/api/purchases/:id", async (c) => {
+  const { id } = parse(purchaseParam, { id: c.req.param("id") });
+  const body = parse(purchasePatch, await jsonBody(c));
+  const p = await c.env.DB.prepare("SELECT * FROM purchase WHERE id = ?").bind(id).first<Purchase>();
+  if (!p) throw fail(404, "commande introuvable");
+  if (p.state !== "commandee") throw fail(409, "commande déjà clôturée");
+  const now = new Date().toISOString();
+  const card = await knownCard(c, p.card_id);
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      "UPDATE purchase SET state = ?2, price_paid = COALESCE(?3, price_paid), received_at = ?4 WHERE id = ?1",
+    ).bind(id, body.state, body.price_paid ?? null, body.state === "recue" ? now : null),
+    ...(body.state === "recue" ? setOwned(c.env.DB, p.species_num, p.card_id, card.tier, now) : []),
+    audit(c.env.DB, c.get("user"), `purchase.${body.state}`, p.card_id),
+  ]);
+  return c.json({ ok: true });
+});
+
 type Species = Awaited<ReturnType<typeof pokedex>>[number];
 type WantTier = (typeof TIERS)[number] | "cheapest" | "sir_ir" | "objectif";
 const byTrend = (a: { price: Price | null }, b: { price: Price | null }) =>
@@ -238,12 +387,12 @@ const byTrend = (a: { price: Price | null }, b: { price: Price | null }) =>
 
 /** Espèces concernées : manquantes, plus celles à améliorer quand on suit l'objectif. */
 const toBuy = (s: Species, tier: WantTier) =>
-  s.status === "manquante" || (tier === "objectif" && s.status === "a_verifier");
+  !s.order && (s.status === "manquante" || (tier === "objectif" && s.status === "a_verifier"));
 
 /** Carte(s) visée(s) : l'objectif (rareté la plus haute), la moins chère, une rareté, ou « SIR, sinon IR ». */
 function wanted(s: Species, tier: WantTier): Species["cards"] {
   if (tier === "objectif") return s.cards.filter((x) => x.id === s.target);
-  const opts = s.cards.filter((x) => s.options.some((o) => o.card_id === x.id));
+  const opts = s.cards.filter((x) => !x.excluded && s.options.some((o) => o.card_id === x.id));
   if (tier === "cheapest") return opts.sort(byTrend).slice(0, 1);
   if (tier === "sir_ir") {
     const sir = opts.filter((x) => x.tier === "SIR");
@@ -298,17 +447,39 @@ app.get("/api/placeholders", async (c) => {
   return c.json({ items });
 });
 
+app.get("/api/species/:num/history", async (c) => {
+  const num = speciesNum(c);
+  const { results } = await c.env.DB.prepare(
+    `SELECT h.card_id, h.day, h.trend FROM price_history h JOIN cards c ON c.id = h.card_id
+     WHERE c.species_num = ? AND h.trend IS NOT NULL AND h.day >= date('now', '-180 days')
+     ORDER BY h.day`,
+  )
+    .bind(num)
+    .all<{ card_id: string; day: string; trend: number }>();
+  const out: Record<string, [string, number][]> = {};
+  for (const r of results) (out[r.card_id] ??= []).push([r.day, r.trend]);
+  return c.json(out);
+});
+
 app.get("/api/export", async (c) => {
-  const [owned, keep] = await c.env.DB.batch([
+  const [owned, keep, wish, excluded, purchases] = await c.env.DB.batch([
     c.env.DB.prepare("SELECT species_num, card_id, tier, note FROM owned ORDER BY species_num"),
     c.env.DB.prepare("SELECT species_num, note FROM keep ORDER BY species_num"),
+    c.env.DB.prepare("SELECT species_num, card_id FROM wish ORDER BY species_num"),
+    c.env.DB.prepare("SELECT card_id, reason FROM excluded ORDER BY card_id"),
+    c.env.DB.prepare(
+      "SELECT card_id, state, price_paid, ordered_at, received_at, note FROM purchase ORDER BY ordered_at, id",
+    ),
   ]);
   c.header("Content-Disposition", 'attachment; filename="pokedex-export.json"');
   return c.json({
-    version: 1,
+    version: 2,
     exported_at: new Date().toISOString(),
     owned: owned?.results ?? [],
     keep: keep?.results ?? [],
+    wish: wish?.results ?? [],
+    excluded: excluded?.results ?? [],
+    purchases: purchases?.results ?? [],
   });
 });
 
@@ -325,28 +496,56 @@ app.post("/api/import", async (c) => {
       if (!row || row.tier !== o.tier) throw fail(400, `carte ${o.card_id} invalide`);
     }
   }
+  for (const w of b.wish ?? [])
+    if (!(await cardTier(c.env.DB, w.card_id, w.species_num))) throw fail(400, `carte ${w.card_id} invalide`);
+  const speciesOf = new Map<string, number>();
+  for (const id of new Set([...(b.excluded ?? []), ...(b.purchases ?? [])].map((x) => x.card_id))) {
+    const card = await cardById(c.env.DB, id);
+    if (!card) throw fail(400, `carte ${id} invalide`);
+    speciesOf.set(id, card.species_num);
+  }
+  const db = c.env.DB;
   const now = new Date().toISOString();
-  // import = remplacement complet, atomique
-  await c.env.DB.batch([
-    c.env.DB.prepare("DELETE FROM keep"),
-    c.env.DB.prepare("DELETE FROM owned"),
+  // import = remplacement complet, atomique (une sauvegarde v1 laisse vides versions visées, écartées et commandes)
+  await db.batch([
+    ...["keep", "wish", "excluded", "purchase", "owned"].map((t) => db.prepare(`DELETE FROM ${t}`)),
     ...b.owned.map((o) =>
-      c.env.DB.prepare("INSERT INTO owned (species_num, card_id, tier, note, updated_at) VALUES (?, ?, ?, ?, ?)").bind(
-        o.species_num,
-        o.card_id,
-        o.tier,
-        o.note ?? null,
-        now,
-      ),
+      db
+        .prepare("INSERT INTO owned (species_num, card_id, tier, note, updated_at) VALUES (?, ?, ?, ?, ?)")
+        .bind(o.species_num, o.card_id, o.tier, o.note ?? null, now),
     ),
     ...b.keep.map((k) =>
-      c.env.DB.prepare("INSERT INTO keep (species_num, note, decided_at) VALUES (?, ?, ?)").bind(
-        k.species_num,
-        k.note ?? null,
-        now,
-      ),
+      db
+        .prepare("INSERT INTO keep (species_num, note, decided_at) VALUES (?, ?, ?)")
+        .bind(k.species_num, k.note ?? null, now),
     ),
-    audit(c.env.DB, c.get("user"), "import", `${b.owned.length} possédées, ${b.keep.length} conservées`),
+    ...(b.wish ?? []).map((w) =>
+      db
+        .prepare("INSERT INTO wish (species_num, card_id, updated_at) VALUES (?, ?, ?)")
+        .bind(w.species_num, w.card_id, now),
+    ),
+    ...(b.excluded ?? []).map((e) =>
+      db
+        .prepare("INSERT INTO excluded (card_id, reason, excluded_at) VALUES (?, ?, ?)")
+        .bind(e.card_id, e.reason ?? null, now),
+    ),
+    ...(b.purchases ?? []).map((p) =>
+      db
+        .prepare(
+          `INSERT INTO purchase (species_num, card_id, state, price_paid, ordered_at, received_at, note)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          speciesOf.get(p.card_id),
+          p.card_id,
+          p.state,
+          p.price_paid ?? null,
+          p.ordered_at,
+          p.received_at,
+          p.note ?? null,
+        ),
+    ),
+    audit(db, c.get("user"), "import", `${b.owned.length} possédées, ${b.keep.length} conservées`),
   ]);
   return c.json({ ok: true, owned: b.owned.length, keep: b.keep.length });
 });

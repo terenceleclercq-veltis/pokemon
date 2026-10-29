@@ -16,8 +16,8 @@ beforeEach(async () => {
   await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
   // état neuf à chaque test (le stockage n'est pas isolé automatiquement entre tests)
   await env.DB.batch(
-    ["audit_log", "settings", "price_history", "price_cache", "keep", "owned"].map((t) =>
-      env.DB.prepare(`DELETE FROM ${t}`),
+    ["audit_log", "settings", "price_history", "price_cache", "purchase", "wish", "excluded", "keep", "owned"].map(
+      (t) => env.DB.prepare(`DELETE FROM ${t}`),
     ),
   );
   for (const q of SEED) await env.DB.prepare(q).run();
