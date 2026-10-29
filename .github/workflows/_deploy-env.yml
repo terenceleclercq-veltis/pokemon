@@ -50,6 +50,17 @@ jobs:
 
       - name: Migrations D1 (compatibles avec la version précédente)
         run: npx wrangler d1 migrations apply DB --remote --env "$ENV"
+      # Base vide (premier déploiement d'un environnement) : chargement du catalogue, sinon le smoke test échoue.
+      # Une base déjà remplie n'est jamais touchée ici : seed.sql supprime les cartes retirées du catalogue,
+      # ses mises à jour passent par catalogue.yml (sauvegarde préalable).
+      - name: Catalogue initial (base vide uniquement)
+        run: |
+          n=$(npx wrangler d1 execute DB --remote --env "$ENV" --json --command "SELECT COUNT(*) AS n FROM species" | node scripts/species-count.mjs)
+          case "$n" in
+            0) npx wrangler d1 execute DB --remote --env "$ENV" --file=seed.sql -y ;;
+            "") echo "::error::lecture du nombre d'espèces impossible"; exit 1 ;;
+            *) echo "catalogue déjà présent ($n espèces), inchangé" ;;
+          esac
 
       - name: Déploiement
         run: npx wrangler deploy --env "$ENV" --message "deploy ${GITHUB_SHA::7} par ${GITHUB_ACTOR}" --tag "${GITHUB_SHA::7}"

@@ -8,8 +8,8 @@ set -euo pipefail
 
 REPO="terenceleclercq-veltis/pokemon"
 CF_API="https://api.cloudflare.com/client/v4"
-URL_STAGING="https://pokedex-staging.veltis.be"
-URL_PRODUCTION="https://pokedex.veltis.be"
+URL_STAGING="https://pokedex-kanto-staging.pokedex-terence.workers.dev"
+URL_PRODUCTION="https://pokedex-kanto-production.pokedex-terence.workers.dev"
 
 ok() { printf '  \033[32m✔\033[0m %s\n' "$1"; }
 ko() { printf '  \033[31m✘\033[0m %s\n' "$1"; }
@@ -78,8 +78,7 @@ gh variable set APP_URL --env production --body "$URL_PRODUCTION" --repo "$REPO"
 
 titre "4. Secrets Cloudflare pour la CI"
 echo "  Jeton CI à créer dans Cloudflare (My Profile > API Tokens > Create Token > Custom) :"
-echo "    Account > Workers Scripts > Edit ; Account > D1 > Edit ; Account > Account Settings > Read"
-echo "    Zone > Workers Routes > Edit, limité à la zone veltis.be"
+echo "    Account > Workers Scripts > Edit ; Account > D1 > Edit ; Account > Account Settings > Read (compte pokemon)"
 lire_secret CF_ACCOUNT_ID "CLOUDFLARE_ACCOUNT_ID"
 lire_secret CF_CI_TOKEN "CLOUDFLARE_API_TOKEN (jeton CI ci-dessus)"
 for env in staging production; do
