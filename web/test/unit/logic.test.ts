@@ -18,6 +18,7 @@ const card = (id: string, tier: Card["tier"]): Card => ({
   numero: "1",
   categorie: tier,
   confiance: "certain",
+  langue: "fr",
   id_product: null,
   code_cm: null,
   nom_cm: null,

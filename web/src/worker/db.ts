@@ -25,7 +25,7 @@ export async function loadAll(db: D1Database) {
 }
 
 export const cardsOf = (db: D1Database, num: number) =>
-  db.prepare("SELECT id FROM cards WHERE species_num = ?").bind(num).all<{ id: string }>();
+  db.prepare("SELECT id, langue FROM cards WHERE species_num = ?").bind(num).all<{ id: string; langue: string }>();
 
 export const cardTier = (db: D1Database, id: string, num: number) =>
   db.prepare("SELECT tier FROM cards WHERE id = ? AND species_num = ?").bind(id, num).first<{ tier: Tier }>();
@@ -34,7 +34,7 @@ export const cardTier = (db: D1Database, id: string, num: number) =>
 export const staleWatchlist = (db: D1Database, limit: number) =>
   db
     .prepare(
-      `SELECT c.id FROM cards c
+      `SELECT c.id, c.langue FROM cards c
        LEFT JOIN owned o ON o.species_num = c.species_num
        LEFT JOIN keep k ON k.species_num = c.species_num
        LEFT JOIN price_cache p ON p.card_id = c.id
@@ -46,7 +46,7 @@ export const staleWatchlist = (db: D1Database, limit: number) =>
        LIMIT ?`,
     )
     .bind(limit)
-    .all<{ id: string }>();
+    .all<{ id: string; langue: string }>();
 
 export const audit = (db: D1Database, actor: string, action: string, detail?: string | number) =>
   db

@@ -22,6 +22,8 @@ export interface Card {
   code_cm: string | null;
   /** Nom du produit Cardmarket (« Tauros [Target Together] ») ; null si inconnu. */
   nom_cm: string | null;
+  /** Langue de la carte (code TCGdex) : « fr », ou une autre seulement si l'espèce n'a aucune IR/SIR en français. */
+  langue: string;
   image: string | null;
 }
 export interface Owned {

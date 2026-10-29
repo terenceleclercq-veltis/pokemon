@@ -4,6 +4,9 @@ Code affiché par Cardmarket à côté du nom (« Bulbizarre (MEW 166) ») : abr
 l'extension (TCGdex, champ abbreviation.official) + numéro imprimé (localId TCGdex, partie de l'id après le
 dernier tiret, avec ses zéros : « 001 », « SV49 », « TG01 »).
 
+Carte dans une autre langue (id_tcgdex_autre, ex. japonais « S12a-207 ») : Cardmarket affiche l'id de
+l'extension japonaise en minuscules + numéro (« s12a 207 »).
+
 Nom Cardmarket (« Tauros [Target Together] ») : nom anglais et attaques du produit, lu dans le catalogue public
 Cardmarket par idProduct. C'est ce que l'import « Deck List » des Wants reconnaît (« 1 Tauros Target Together »).
 """
@@ -36,7 +39,13 @@ def main():
     missing = []
     for r in rows:
         tid = r["id_tcgdex_fr"]
-        r["code_cardmarket"] = code(*tid.rsplit("-", 1)) if tid else ""
+        autre = r.get("id_tcgdex_autre", "")
+        if tid:
+            r["code_cardmarket"] = code(*tid.rsplit("-", 1))
+        elif autre:
+            r["code_cardmarket"] = " ".join(autre.rsplit("-", 1)).lower()
+        else:
+            r["code_cardmarket"] = ""
         prod = r["url_cardmarket"].rsplit("=", 1)[-1] if r["url_cardmarket"] else ""
         r["nom_cardmarket"] = noms.get(int(prod), "") if prod.isdigit() else ""
         if tid and not r["code_cardmarket"]:

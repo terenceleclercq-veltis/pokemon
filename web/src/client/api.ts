@@ -18,6 +18,8 @@ export interface Card {
   cm_url: string | null;
   tier: Tier;
   confiance: string;
+  /** « fr », ou autre langue seulement si l'espèce n'a aucune IR/SIR en français. */
+  langue: string;
   image: string | null;
   price: Price | null;
 }
