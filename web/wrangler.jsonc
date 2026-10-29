@@ -47,6 +47,7 @@
         },
       ],
       "ratelimits": [{ "name": "RATE_LIMITER", "namespace_id": "1002", "simple": { "limit": 120, "period": 60 } }],
+      "routes": [{ "pattern": "pokedex-staging.veltis.be", "custom_domain": true }],
       "triggers": { "crons": ["*/30 * * * *"] },
     },
     "production": {
@@ -66,6 +67,7 @@
         },
       ],
       "ratelimits": [{ "name": "RATE_LIMITER", "namespace_id": "1003", "simple": { "limit": 120, "period": 60 } }],
+      "routes": [{ "pattern": "pokedex.veltis.be", "custom_domain": true }],
       "triggers": { "crons": ["*/30 * * * *"] },
     },
   },
