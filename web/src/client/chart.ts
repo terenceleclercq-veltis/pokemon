@@ -34,3 +34,33 @@ export function sparkline(points: readonly [string, number][], w = 96, h = 28): 
   svg.classList.add(last < first ? "down" : last > first ? "up" : "flat");
   return svg;
 }
+
+/** Histogramme simple (une barre par libellé), hauteur proportionnelle à la valeur. */
+export function bars(entries: readonly [string, number][], w = 320, h = 120): SVGSVGElement {
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  svg.setAttribute("class", "bars");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", entries.map(([l, v]) => `${l} : ${eur(v)}`).join(", "));
+  const max = Math.max(1, ...entries.map((e) => e[1]));
+  const slot = w / Math.max(1, entries.length);
+  entries.forEach(([label, v], i) => {
+    const bh = (v / max) * (h - 22);
+    const rect = document.createElementNS(NS, "rect");
+    rect.setAttribute("x", (i * slot + slot * 0.15).toFixed(1));
+    rect.setAttribute("y", (h - 16 - bh).toFixed(1));
+    rect.setAttribute("width", (slot * 0.7).toFixed(1));
+    rect.setAttribute("height", bh.toFixed(1));
+    rect.setAttribute("rx", "2");
+    const tip = document.createElementNS(NS, "title");
+    tip.textContent = `${label} : ${eur(v)}`;
+    rect.append(tip);
+    const text = document.createElementNS(NS, "text");
+    text.setAttribute("x", (i * slot + slot / 2).toFixed(1));
+    text.setAttribute("y", String(h - 3));
+    text.setAttribute("text-anchor", "middle");
+    text.textContent = label;
+    svg.append(rect, text);
+  });
+  return svg;
+}

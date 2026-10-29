@@ -8,6 +8,8 @@ import {
   byNum,
   cardImg,
   CATEGORIE_NOTE,
+  CONDITIONS,
+  slotOf,
   goodDeal,
   langueOf,
   ownedCard,
@@ -260,6 +262,72 @@ function orderBlock(s: Species): HTMLElement | null {
   );
 }
 
+/** Ma carte : note, état, gradation, doubles (enregistrés avec « Enregistrer »). */
+function myCard(s: Species): HTMLElement | null {
+  const o = s.owned;
+  if (!o) return null;
+  const note = h("input", {
+    type: "text",
+    name: "note",
+    maxlength: "300",
+    value: o.note ?? "",
+    placeholder: "Achat, provenance…",
+  });
+  const cond = h(
+    "select",
+    { name: "condition" },
+    h("option", { value: "" }, "—"),
+    ...Object.entries(CONDITIONS).map(([k, label]) => h("option", { value: k }, `${k} (${label})`)),
+  );
+  cond.value = o.condition ?? "";
+  const grade = h("input", {
+    type: "text",
+    name: "grade",
+    maxlength: "20",
+    value: o.grade ?? "",
+    placeholder: "PSA 10",
+  });
+  const doubles = h("input", { type: "number", name: "doubles", min: "0", max: "99", value: String(o.doubles ?? 0) });
+  const resume = [o.condition, o.grade, o.doubles ? `${o.doubles} double${o.doubles > 1 ? "s" : ""}` : null]
+    .filter(Boolean)
+    .join(" · ");
+  return h(
+    "details",
+    { class: "mycard" },
+    h("summary", {}, `Ma carte${resume ? ` : ${resume}` : ""}`),
+    h(
+      "div",
+      { class: "row" },
+      h("label", {}, "État", cond),
+      h("label", {}, "Gradée", grade),
+      h("label", {}, "Doubles", doubles),
+      h("label", { class: "wide" }, "Note", note),
+    ),
+    h(
+      "button",
+      {
+        type: "button",
+        onclick: (e: Event) => {
+          write(e.currentTarget, async () => {
+            await api(`/api/species/${s.num}/details`, {
+              method: "PUT",
+              json: {
+                note: note.value.trim() || null,
+                condition: cond.value || null,
+                grade: grade.value.trim() || null,
+                doubles: Math.max(0, Math.min(99, Number(doubles.value) || 0)),
+              },
+            });
+            toast("Ma carte : enregistré.");
+            await refresh(s.num);
+          });
+        },
+      },
+      "Enregistrer",
+    ),
+  );
+}
+
 function summary(s: Species, all: readonly Card[]): HTMLElement {
   const mine = ownedCard(s);
   const goal = targetOf(s);
@@ -289,7 +357,9 @@ function summary(s: Species, all: readonly Card[]): HTMLElement {
           : null,
       ),
     );
-  info.push(orderBlock(s));
+  info.push(orderBlock(s), myCard(s));
+  const slot = slotOf(s.num);
+  info.push(h("p", { class: "mut" }, `Classeur : page ${slot.page}, case ${slot.case}.`));
   if (s.status === "a_verifier")
     info.push(
       h("p", { class: "warn" }, `${s.higher.length} version(s) plus rare(s) existe(nt).`),

@@ -16,6 +16,10 @@
     <a class="skip" href="#grid">Aller à la grille</a>
     <header class="top">
       <h1>Pokédex Kanto <small>full art</small></h1>
+      <div class="seg" role="group" aria-label="Affichage">
+        <button id="v-grille" type="button" aria-pressed="true">Grille</button>
+        <button id="v-classeur" type="button" aria-pressed="false">Classeur</button>
+      </div>
       <p id="progress" aria-live="polite">Chargement…</p>
       <div
         id="bar"
@@ -49,6 +53,24 @@
         <option value="desc">Prix décroissant</option>
       </select>
       <!-- icônes : Feather (MIT) -->
+      <button id="btn-stats" type="button">
+        <svg
+          viewBox="0 0 24 24"
+          width="20"
+          height="20"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <line x1="18" y1="20" x2="18" y2="10" />
+          <line x1="12" y1="20" x2="12" y2="4" />
+          <line x1="6" y1="20" x2="6" y2="14" />
+        </svg>
+        <span class="lbl">Statistiques</span>
+      </button>
       <button id="btn-buy" type="button">
         <svg
           viewBox="0 0 24 24"
@@ -97,6 +119,7 @@
     <main>
       <div id="grid" role="list" aria-label="Espèces"></div>
       <p id="empty" hidden>Aucune espèce ne correspond.</p>
+      <div id="binder" hidden></div>
     </main>
 
     <dialog id="detail" class="sheet" aria-labelledby="detail-title">
@@ -147,6 +170,14 @@
         </div>
         <div id="buylist" aria-live="polite"></div>
       </div>
+    </dialog>
+
+    <dialog id="stats" class="sheet" aria-labelledby="stats-title">
+      <div class="sheet-head">
+        <h2 id="stats-title">Statistiques</h2>
+        <button class="icon" type="button" data-close aria-label="Fermer">×</button>
+      </div>
+      <div id="stats-body" class="sheet-body" aria-live="polite"></div>
     </dialog>
 
     <dialog id="settings" class="sheet" aria-labelledby="settings-title">

@@ -1,10 +1,14 @@
 // État de la vue dans l'adresse (#q=…&f=…&s=…&p=25) : liens directs vers une fiche, retour arrière qui la ferme.
 import type { Filter, Sort } from "./state";
 
+export type Mode = "grille" | "classeur";
+
 export interface ViewState {
   q: string;
   f: Filter;
   s: Sort;
+  /** Affichage : grille filtrable, ou classeur 9 cases (miroir du binder physique). */
+  v: Mode;
   /** Fiche ouverte (numéro de Pokédex), null si aucune. */
   p: number | null;
 }
@@ -18,6 +22,7 @@ export function readState(): ViewState {
   const s = h.get("s") as Sort | null;
   const p = Number(h.get("p"));
   return {
+    v: h.get("v") === "classeur" ? "classeur" : "grille",
     q: h.get("q") ?? "",
     f: f && FILTERS.includes(f) ? f : "all",
     s: s && SORTS.includes(s) ? s : "num",
@@ -30,6 +35,7 @@ function toHash(v: ViewState): string {
   if (v.q) h.set("q", v.q);
   if (v.f !== "all") h.set("f", v.f);
   if (v.s !== "num") h.set("s", v.s);
+  if (v.v !== "grille") h.set("v", v.v);
   if (v.p) h.set("p", String(v.p));
   return h.size ? `#${h}` : location.pathname;
 }

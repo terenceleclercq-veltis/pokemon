@@ -146,5 +146,19 @@ export const goodDeal = (c: Card) => {
   return p?.trend != null && p.avg30 != null && p.avg30 > 0 && p.trend <= p.avg30 * 0.9;
 };
 
+/** Emplacement dans un classeur 9 cases, dans l'ordre du Pokédex : page et case (1 à 9, de gauche à droite). */
+export const slotOf = (num: number) => ({ page: Math.ceil(num / 9), case: ((num - 1) % 9) + 1 });
+
+/** États de la grille Cardmarket. */
+export const CONDITIONS: Record<string, string> = {
+  MT: "Mint",
+  NM: "Near Mint",
+  EX: "Excellent",
+  GD: "Good",
+  LP: "Light Played",
+  PL: "Played",
+  PO: "Poor",
+};
+
 /** « 29/10 » depuis une date ISO. */
 export const shortDate = (iso: string | undefined | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : "");

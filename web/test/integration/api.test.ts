@@ -30,6 +30,8 @@ const species = async (n: number) => (await pokedex()).find((s) => s.num === n)!
 
 beforeEach(() => {
   resetJwksCache();
+  // la suite enchaîne plus de 120 appels par minute : limiteur neutralisé, testé à part ci-dessous
+  vi.spyOn(env.RATE_LIMITER, "limit").mockResolvedValue({ success: true });
   mockOutbound({ "xy1-141": 50, "sv03.5-166": 40, "sv03.5-198": 90, "sv03.5-167": 20, "S12a-207": 17 });
 });
 afterEach(() => vi.restoreAllMocks());
@@ -58,6 +60,15 @@ describe("authentification et en-têtes", () => {
   });
   it("API jamais en cache", async () =>
     expect((await call("/api/pokedex")).headers.get("Cache-Control")).toBe("no-store"));
+});
+
+describe("limite de débit", () => {
+  it("429 quand le quota par utilisateur est dépassé", async () => {
+    vi.spyOn(env.RATE_LIMITER, "limit").mockResolvedValue({ success: false });
+    const r = await call("/api/pokedex");
+    expect(r.status).toBe(429);
+    expect(await r.json()).toEqual({ error: "trop de requêtes, réessaie dans une minute" });
+  });
 });
 
 describe("anti-CSRF", () => {
@@ -258,13 +269,23 @@ describe("liste d'envies, export/import", () => {
     expect((await call("/api/cardmarket")).status).toBe(404);
   });
   it("placeholders : une fiche par espèce manquante, ou les 151", async () => {
-    type Ph = { items: { num: number; nom_fr: string }[] };
+    type Ph = {
+      items: {
+        num: number;
+        nom_fr: string;
+        slot: { page: number; case: number };
+        target: { code: string; tier: string; url: string } | null;
+      }[];
+    };
     const miss = await (await call("/api/placeholders")).json<Ph>();
-    expect(miss.items).toEqual([
-      { num: 1, nom_fr: "Bulbizarre" },
-      { num: 2, nom_fr: "Herbizarre" },
-      { num: 151, nom_fr: "Mew" },
+    expect(miss.items.map((i) => [i.num, i.nom_fr, i.slot.page, i.slot.case])).toEqual([
+      [1, "Bulbizarre", 1, 1],
+      [2, "Herbizarre", 1, 2],
+      [151, "Mew", 17, 7],
     ]);
+    // carte visée imprimée sur la fiche (Bulbizarre : la SIR) ; Mew n'a aucune carte
+    expect(miss.items[0]?.target).toMatchObject({ code: "MEW 198", tier: "SIR" });
+    expect(miss.items[2]?.target).toBeNull();
     await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } });
     expect((await (await call("/api/placeholders")).json<Ph>()).items.map((i) => i.num)).toEqual([2, 151]);
     expect((await (await call("/api/placeholders?scope=all")).json<Ph>()).items.map((i) => i.num)).toEqual([1, 2, 151]);
@@ -326,6 +347,23 @@ describe("version visée, versions écartées", () => {
     s = await species(1);
     expect(s.status).toBe("a_verifier");
     expect((await call("/api/cards/inconnue-1/excluded", { method: "PUT", json: {} })).status).toBe(400);
+  });
+});
+
+describe("ma carte : note, état, gradation, doubles", () => {
+  type Owned = { note: string | null; condition: string | null; grade: string | null; doubles: number };
+  const owned = async () => (await species(1)).owned as unknown as Owned;
+  it("enregistre les détails, les garde si la même carte est re-déclarée, les efface au changement de carte", async () => {
+    expect((await call("/api/species/1/details", { method: "PUT", json: { note: "x" } })).status).toBe(409);
+    await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } });
+    const details = { note: "achetée à Lille", condition: "NM", grade: "PSA 9", doubles: 2 };
+    expect((await call("/api/species/1/details", { method: "PUT", json: details })).status).toBe(200);
+    expect(await owned()).toMatchObject(details);
+    await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } });
+    expect(await owned()).toMatchObject(details);
+    await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-198" } });
+    expect(await owned()).toMatchObject({ note: "achetée à Lille", condition: null, grade: null, doubles: 2 });
+    expect((await call("/api/species/1/details", { method: "PUT", json: { condition: "TOP" } })).status).toBe(400);
   });
 });
 

@@ -276,6 +276,51 @@ test("fiche : écarter une version, la réintégrer, viser une version", async (
   await expect(dlg.locator(".chip.goal", { hasText: "ton choix" })).toHaveCount(0);
 });
 
+test("vue classeur : 17 pages de 9 cases, une case ouvre la fiche", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Classeur" }).click();
+  await expect(page).toHaveURL(/v=classeur/);
+  await expect(page.locator("#binder .page")).toHaveCount(17);
+  await expect(page.locator("#binder .slot")).toHaveCount(151);
+  await expect(page.locator("#grid")).toBeHidden();
+  await page.locator("#binder .slot").nth(24).click();
+  await expect(page.locator("#detail").getByRole("heading", { name: "#025 Pikachu" })).toBeVisible();
+  await expect(page.locator("#detail")).toContainText("Classeur : page 3, case 7.");
+  await expect(page.locator("#detail .price").first()).toContainText("€");
+  await page.locator("#detail").getByRole("button", { name: "Fermer" }).click();
+  await page.getByRole("button", { name: "Grille" }).click();
+  await expect(page.locator("#grid")).toBeVisible();
+});
+
+test("statistiques : progression, valeur, dépenses", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Statistiques" }).click();
+  const dlg = page.locator("#stats");
+  await expect(dlg).toContainText("Progression");
+  await expect(dlg).toContainText("Valeur estimée");
+  await expect(dlg).toContainText("Dépenses");
+});
+
+test("ma carte : état, gradation, doubles", async ({ page }) => {
+  const headers = { "X-Requested-With": "pokedex" };
+  const dex = (await (await page.request.get("/api/pokedex")).json()) as {
+    species: { num: number; cards: { id: string }[] }[];
+  };
+  const card = dex.species.find((x) => x.num === 4)?.cards[0]?.id ?? "";
+  await page.request.put("/api/species/4/owned", { headers, data: { card_id: card } });
+  await page.goto("/#p=4");
+  const dlg = page.locator("#detail");
+  await expect(dlg.locator(".price").first()).toContainText("€");
+  await dlg.locator("details.mycard summary").click();
+  await dlg.getByLabel("État").selectOption("NM");
+  await dlg.getByLabel("Gradée").fill("PSA 9");
+  await dlg.getByLabel("Doubles").fill("1");
+  await dlg.getByRole("button", { name: "Enregistrer" }).click();
+  await expect(page.locator(".toast")).toContainText("Ma carte : enregistré.");
+  await expect(dlg.locator("details.mycard summary")).toHaveText("Ma carte : NM · PSA 9 · 1 double");
+  await page.request.delete("/api/species/4/owned", { headers });
+});
+
 test("réglages : liste d'envies et export", async ({ page, context, isMobile }) => {
   test.skip(isMobile, "presse-papiers testé sur desktop");
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
@@ -336,5 +381,10 @@ test("placeholders : 9 fiches par feuille A4, sans violation CSP", async ({ page
   await expect(page.locator(".sheet").first().locator(".ph")).toHaveCount(9);
   await expect(page.locator(".ph").first()).toContainText("#001");
   await expect(page.locator(".ph img").first()).toHaveAttribute("src", /official-artwork\/1\.png$/);
+  // emplacement dans le classeur et carte visée avec QR code (version enrichie, par défaut)
+  await expect(page.locator(".ph .slot").first()).toHaveText("p. 1 · c. 1");
+  await expect(page.locator(".ph.rich .qr").first()).toBeVisible();
+  await page.locator("#rich").selectOption("non");
+  await expect(page.locator(".ph .qr")).toHaveCount(0);
   expect(errors).toEqual([]);
 });

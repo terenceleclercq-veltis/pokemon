@@ -1,10 +1,12 @@
 // Point d'entrée : chargement, outils de la grille, navigation (adresse ↔ fiche), réglages.
 import { api, type Species } from "./api";
+import { renderBinder } from "./binder";
 import { initBuylist } from "./buylist";
 import { closeDetail, initDetail, openDetail, openNum } from "./detail";
 import { $, $as, action, debounce, h, toast } from "./dom";
-import { renderGrid, visibleNums } from "./grid";
-import { pushState, readState, replaceState, type ViewState } from "./router";
+import { renderGrid, renderStats, visibleNums } from "./grid";
+import { pushState, readState, replaceState, type Mode, type ViewState } from "./router";
+import { initDashboard } from "./stats";
 import { store, type Filter, type Sort } from "./state";
 import { initViewer } from "./viewer";
 
@@ -12,10 +14,23 @@ let view: ViewState = readState();
 /** La fiche a ajouté une entrée d'historique : la fermer revient en arrière (bouton retour cohérent). */
 let pushed = false;
 
+/** Grille filtrable ou classeur, selon l'affichage choisi. */
+function render(): void {
+  const binder = view.v === "classeur";
+  $("grid").hidden = binder;
+  $("binder").hidden = !binder;
+  for (const m of ["grille", "classeur"] as Mode[]) $(`v-${m}`).setAttribute("aria-pressed", String(view.v === m));
+  if (binder) {
+    renderStats();
+    $("empty").hidden = true;
+    renderBinder();
+  } else renderGrid(view);
+}
+
 async function load(): Promise<void> {
   const r = (await (await api("/api/pokedex")).json()) as { species: Species[] };
   store.data = r.species;
-  renderGrid(view);
+  render();
 }
 
 function showControls(): void {
@@ -27,7 +42,7 @@ function showControls(): void {
 function setView(patch: Partial<ViewState>): void {
   view = { ...view, ...patch };
   replaceState(view);
-  renderGrid(view);
+  render();
 }
 
 function bindTools(): void {
@@ -35,28 +50,33 @@ function bindTools(): void {
   $("q").addEventListener(
     "input",
     debounce(() => {
-      setView({ q: $as("q", HTMLInputElement).value.trim() });
+      setView({ q: $as("q", HTMLInputElement).value.trim(), v: "grille" });
     }, 120),
   );
   $("filter").addEventListener("change", () => {
-    setView({ f: $as("filter", HTMLSelectElement).value as Filter });
+    setView({ f: $as("filter", HTMLSelectElement).value as Filter, v: "grille" });
   });
   $("sort").addEventListener("change", () => {
-    setView({ s: $as("sort", HTMLSelectElement).value as Sort });
+    setView({ s: $as("sort", HTMLSelectElement).value as Sort, v: "grille" });
   });
   // vues rapides : « la moins chère à acheter », « la plus chère »…
   $("quick").addEventListener("click", (e) => {
     const b = (e.target as HTMLElement).closest<HTMLElement>("[data-view]");
     if (!b?.dataset.view) return;
     const [f, s] = b.dataset.view.split(":") as [Filter, Sort];
-    setView({ q: "", f, s });
+    setView({ q: "", f, s, v: "grille" });
     showControls();
     $("grid").scrollIntoView({ block: "start", behavior: "smooth" });
   });
-  $("grid").addEventListener("click", (e) => {
-    const t = (e.target as HTMLElement).closest<HTMLElement>("[data-num]");
-    if (t) void openDetail(Number(t.dataset.num));
-  });
+  for (const id of ["grid", "binder"])
+    $(id).addEventListener("click", (e) => {
+      const t = (e.target as HTMLElement).closest<HTMLElement>("[data-num]");
+      if (t) void openDetail(Number(t.dataset.num));
+    });
+  for (const m of ["grille", "classeur"] as Mode[])
+    $(`v-${m}`).addEventListener("click", () => {
+      setView({ v: m });
+    });
   document.addEventListener("click", (e) => {
     const t = (e.target as HTMLElement).closest<HTMLElement>("[data-close]");
     if (t) t.closest("dialog")?.close();
@@ -66,7 +86,7 @@ function bindTools(): void {
 function bindNavigation(): void {
   initDetail({
     reload: load,
-    visible: visibleNums,
+    visible: () => (view.v === "classeur" ? store.data.map((s) => s.num) : visibleNums()),
     shown: (num) => {
       if (view.p === num) return;
       const opening = view.p === null;
@@ -88,12 +108,12 @@ function bindNavigation(): void {
   // retour/avance du navigateur, ou adresse modifiée à la main
   addEventListener("popstate", () => {
     const next = readState();
-    const changed = next.q !== view.q || next.f !== view.f || next.s !== view.s;
+    const changed = next.q !== view.q || next.f !== view.f || next.s !== view.s || next.v !== view.v;
     view = next;
     pushed = false;
     if (changed) {
       showControls();
-      renderGrid(view);
+      render();
     }
     if (view.p && openNum() !== view.p) void openDetail(view.p);
     else if (!view.p && openNum() !== null) closeDetail();
@@ -142,6 +162,9 @@ bindNavigation();
 bindSettings();
 initViewer();
 initBuylist(load);
+initDashboard((num) => {
+  void openDetail(num);
+});
 load()
   .then(() => {
     if (view.p) void openDetail(view.p);

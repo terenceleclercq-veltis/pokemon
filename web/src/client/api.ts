@@ -50,7 +50,14 @@ export interface Species {
   wish: string | null;
   /** Commande en cours. */
   order: Order | null;
-  owned: { card_id: string | null; tier: Tier; note: string | null } | null;
+  owned: {
+    card_id: string | null;
+    tier: Tier;
+    note: string | null;
+    condition?: string | null;
+    grade?: string | null;
+    doubles?: number;
+  } | null;
   keep: { decided_at: string } | null;
   higher: string[];
   cards: Card[];
