@@ -33,8 +33,8 @@
     "staging": {
       "vars": {
         "ENVIRONMENT": "staging",
-        "ACCESS_TEAM": "REMPLACER",
-        "ACCESS_AUD": "REMPLACER",
+        "ACCESS_TEAM": "glowandcare",
+        "ACCESS_AUD": "7e0333d29926fc500de815031c0ddbd891fbdb8f04e650834fddea8156186c3a",
         "ALLOWED_EMAIL": "terence.leclercq@veltis.be",
         "CI_SERVICE_TOKEN_ID": "REMPLACER",
       },
@@ -53,8 +53,8 @@
     "production": {
       "vars": {
         "ENVIRONMENT": "production",
-        "ACCESS_TEAM": "REMPLACER",
-        "ACCESS_AUD": "REMPLACER",
+        "ACCESS_TEAM": "glowandcare",
+        "ACCESS_AUD": "7482661f7535422157e50a85bd40fdc5887dc4073f03de128e5b3b9db5b0854a",
         "ALLOWED_EMAIL": "terence.leclercq@veltis.be",
         "CI_SERVICE_TOKEN_ID": "REMPLACER",
       },

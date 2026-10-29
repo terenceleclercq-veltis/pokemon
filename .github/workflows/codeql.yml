@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
+      actions: read # requis par codeql-action sur un dépôt privé
       contents: read
       security-events: write
     strategy:
