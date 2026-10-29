@@ -53,6 +53,88 @@ function cmCode(code: string, label: string): HTMLButtonElement {
   );
 }
 
+interface BuyItem {
+  num: number;
+  card_id: string;
+  espece: string;
+  label: string;
+  url: string | null;
+  trend: number | null;
+}
+
+/** Déduit le prix du budget restant (champ facultatif) après un achat. */
+function spend(amount: number | null): void {
+  const input = $as("buy-budget", HTMLInputElement);
+  if (!input.value || amount == null) return;
+  input.value = String(Math.max(0, Math.round((Number(input.value) - amount) * 100) / 100));
+}
+
+/** Marque des cartes comme achetées : elles passent au binder et sortent de la liste. */
+async function markBought(items: readonly BuyItem[]): Promise<void> {
+  for (const it of items) {
+    await api(`/api/species/${it.num}/owned`, { method: "PUT", json: { card_id: it.card_id } });
+    spend(it.trend);
+  }
+  toast(
+    items.length === 1
+      ? `${items[0]?.espece ?? ""} marqué comme acheté.`
+      : `${items.length} cartes marquées comme achetées.`,
+  );
+  await load();
+  await renderBuylist();
+}
+
+async function renderBuylist(): Promise<void> {
+  const q = new URLSearchParams({ tier: $as("buy-tier", HTMLSelectElement).value });
+  const budget = $as("buy-budget", HTMLInputElement).value;
+  if (budget && Number(budget) > 0) q.set("budget", budget);
+  const r = (await (await api(`/api/buylist?${q.toString()}`)).json()) as {
+    items: BuyItem[];
+    total: number;
+    budget: number | null;
+  };
+  const ol = h("ol", { class: "buylist" });
+  for (const it of r.items)
+    ol.append(
+      h(
+        "li",
+        {},
+        it.url
+          ? h("a", { href: it.url, target: "_blank", rel: "noopener noreferrer" }, it.label)
+          : h("span", {}, `${it.label} (lien inconnu)`),
+        ` · ${it.espece} · ${eur(it.trend)} `,
+        h(
+          "button",
+          {
+            type: "button",
+            "aria-label": `${it.label} achetée`,
+            onclick: (e: Event) => {
+              action(e.currentTarget as HTMLButtonElement, () => markBought([it]));
+            },
+          },
+          "Achetée",
+        ),
+      ),
+    );
+  const sum = `${r.items.length} carte${r.items.length > 1 ? "s" : ""} · ${eur(r.total)}${
+    r.budget ? ` sur ${eur(r.budget)}` : ""
+  } (tendance, hors port)`;
+  const all = r.items.length
+    ? h(
+        "button",
+        {
+          type: "button",
+          onclick: (e: Event) => {
+            if (!confirm(`Marquer les ${r.items.length} cartes comme achetées ?`)) return;
+            action(e.currentTarget as HTMLButtonElement, () => markBought(r.items));
+          },
+        },
+        "Tout marquer comme acheté",
+      )
+    : null;
+  $("buylist").replaceChildren(h("p", { class: "mut" }, sum), ol, all ?? "");
+}
+
 function action(btn: HTMLButtonElement | null, fn: () => Promise<void>): void {
   if (btn) btn.disabled = true;
   fn()
@@ -331,34 +413,14 @@ function bind(): void {
     void settingsState().catch(() => undefined);
     $as("settings", HTMLDialogElement).showModal();
   });
-  $("btn-buylist").addEventListener("click", (e) => {
-    action(e.currentTarget as HTMLButtonElement, async () => {
-      const q = new URLSearchParams({ tier: $as("wants-tier", HTMLSelectElement).value });
-      const budget = $as("buy-budget", HTMLInputElement).value;
-      if (budget) q.set("budget", budget);
-      const r = (await (await api(`/api/buylist?${q.toString()}`)).json()) as {
-        items: { espece: string; label: string; url: string | null; trend: number | null }[];
-        total: number;
-        budget: number | null;
-      };
-      const ol = h("ol", { class: "buylist" });
-      for (const it of r.items)
-        ol.append(
-          h(
-            "li",
-            {},
-            it.url
-              ? h("a", { href: it.url, target: "_blank", rel: "noopener noreferrer" }, it.label)
-              : h("span", {}, `${it.label} (lien inconnu)`),
-            ` · ${it.espece} · ${eur(it.trend)}`,
-          ),
-        );
-      const sum = `${r.items.length} carte${r.items.length > 1 ? "s" : ""} · ${eur(r.total)}${
-        r.budget ? ` sur ${eur(r.budget)}` : ""
-      } (tendance, hors port)`;
-      $("buylist").replaceChildren(h("p", { class: "mut" }, sum), ol);
-    });
+  $("btn-buy").addEventListener("click", () => {
+    $as("buy", HTMLDialogElement).showModal();
+    void renderBuylist().catch(() => undefined);
   });
+  $("btn-buylist").addEventListener("click", (e) => {
+    action(e.currentTarget as HTMLButtonElement, renderBuylist);
+  });
+
   $("btn-wants").addEventListener("click", (e) => {
     action(e.currentTarget as HTMLButtonElement, async () => {
       const t = await (

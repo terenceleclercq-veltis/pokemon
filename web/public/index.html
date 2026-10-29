@@ -40,6 +40,7 @@
           <option value="choisie">Choix conservé</option>
           <option value="none">Sans full art FR</option>
         </select>
+        <button id="btn-buy" type="button">Liste d'achat</button>
         <button id="btn-settings" type="button">Réglages</button>
       </div>
     </header>
@@ -50,6 +51,30 @@
 
     <dialog id="detail" aria-labelledby="detail-title">
       <div id="detail-body"></div>
+      <button class="close" type="button" data-close>Fermer</button>
+    </dialog>
+
+    <dialog id="buy" aria-labelledby="buy-title">
+      <h2 id="buy-title">Liste d'achat</h2>
+      <p>
+        Cartes manquantes de la moins chère à la plus chère, avec un lien vers la version exacte sur Cardmarket. Prix
+        tendance, hors frais de port. Une fois commandée, « Achetée » l'ajoute au binder et la déduit du budget.
+      </p>
+      <label
+        >Cartes
+        <select id="buy-tier">
+          <option value="sir_ir">SIR, sinon IR</option>
+          <option value="cheapest">La moins chère</option>
+          <option value="FA">Full art</option>
+          <option value="IR">IR</option>
+          <option value="SIR">SIR</option>
+        </select>
+      </label>
+      <label
+        >Budget restant (€, facultatif) <input id="buy-budget" type="number" min="1" max="100000" step="0.01"
+      /></label>
+      <button id="btn-buylist" type="button">Afficher</button>
+      <div id="buylist" aria-live="polite"></div>
       <button class="close" type="button" data-close>Fermer</button>
     </dialog>
 
@@ -70,16 +95,6 @@
           <option value="SIR">SIR</option>
         </select>
         <button id="btn-wants" type="button">Copier</button>
-      </section>
-      <section>
-        <h3>Liste d'achat</h3>
-        <p>
-          Les cartes manquantes (rareté choisie ci-dessus), de la moins chère à la plus chère, avec un lien vers la
-          version exacte sur Cardmarket. Prix tendance, hors frais de port.
-        </p>
-        <label>Budget (€, facultatif) <input id="buy-budget" type="number" min="1" max="100000" step="1" /></label>
-        <button id="btn-buylist" type="button">Afficher</button>
-        <div id="buylist" aria-live="polite"></div>
       </section>
       <section>
         <h3>Placeholders de binder</h3>

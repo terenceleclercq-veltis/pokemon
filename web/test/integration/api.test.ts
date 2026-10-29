@@ -186,6 +186,7 @@ describe("liste d'envies, export/import", () => {
     expect(within.items).toEqual([
       {
         num: 2,
+        card_id: "sv03.5-167",
         espece: "Herbizarre",
         label: "Herbizarre (MEW 167)",
         url: "https://www.cardmarket.com/fr/Pokemon/Products?idProduct=733762",

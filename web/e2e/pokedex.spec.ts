@@ -101,18 +101,21 @@ test("code Cardmarket affiché et copié pour la recherche", async ({ page, cont
   await expect(link).toHaveAttribute("rel", "noopener noreferrer");
 });
 
-test("liste d'achat : liens Cardmarket vers la version exacte", async ({ page }) => {
+test("liste d'achat : outil de l'en-tête, liens exacts et « Achetée »", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Réglages" }).click();
-  await page.locator("#wants-tier").selectOption("sir_ir");
+  await page.getByRole("button", { name: "Liste d'achat" }).click();
+  const dlg = page.locator("#buy");
+  await expect(dlg).toBeVisible();
   // pas de budget : la base E2E n'a pas de prix, et le budget écarte les cartes sans prix
-  await page.getByRole("button", { name: "Afficher" }).click();
-  const links = page.locator("#buylist a");
-  await expect(links.first()).toHaveAttribute(
+  const first = dlg.locator("#buylist li").first();
+  await expect(first.locator("a")).toHaveAttribute(
     "href",
     /^https:\/\/www\.cardmarket\.com\/fr\/Pokemon\/Products\?idProduct=\d+$/,
   );
-  await expect(page.locator("#buylist")).toContainText("hors port");
+  const before = await dlg.locator("#buylist li").count();
+  await first.getByRole("button", { name: "Achetée" }).click();
+  await expect(page.locator(".toast")).toContainText("marqué comme acheté");
+  await expect(dlg.locator("#buylist li")).toHaveCount(before - 1);
 });
 
 test("réglages : liste d'envies et export", async ({ page, context, isMobile }) => {

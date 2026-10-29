@@ -281,7 +281,14 @@ app.get("/api/buylist", async (c) => {
     const p = x.price?.trend;
     if (budget !== undefined && (p == null || total + p > budget)) continue;
     total += p ?? 0;
-    items.push({ num: x.species_num, espece: x.espece, label: x.cm_label, url: x.cm_url, trend: p ?? null });
+    items.push({
+      num: x.species_num,
+      card_id: x.id,
+      espece: x.espece,
+      label: x.cm_label,
+      url: x.cm_url,
+      trend: p ?? null,
+    });
   }
   return c.json({ items, total: Math.round(total * 100) / 100, budget: budget ?? null });
 });
