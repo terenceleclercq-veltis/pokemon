@@ -159,7 +159,7 @@ describe("liste d'envies, export/import", () => {
     await call("/api/species/1/prices");
     await call("/api/species/2/prices");
     const txt = await (await call("/api/wants?tier=cheapest")).text();
-    expect(txt.split("\n").sort()).toEqual(["1 Bulbizarre (MEW 166)", "1 Herbizarre (MEW 167)"]);
+    expect(txt.split("\n").sort()).toEqual(["1 Bulbasaur Leech Seed 151", "1 Ivysaur Leech Seed Vine Whip"]);
     expect((await call("/api/wants?tier=XX")).status).toBe(400);
   });
   it("export puis import (remplacement atomique)", async () => {

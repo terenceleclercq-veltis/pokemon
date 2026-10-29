@@ -20,6 +20,7 @@ const card = (id: string, tier: Card["tier"]): Card => ({
   confiance: "certain",
   id_product: null,
   code_cm: null,
+  nom_cm: null,
   image: null,
 });
 const cards = [card("fa", "FA"), card("ir1", "IR"), card("ir2", "IR"), card("sir", "SIR")];
@@ -69,9 +70,21 @@ describe("cheapestPerTier", () => {
 
 describe("wantsLine", () => {
   it("formate et neutralise les caractères de contrôle", () =>
-    expect(wantsLine({ nom_fr: "Mew\nex", set_name: "151", numero: "205", code_cm: null })).toBe("1 Mew ex (151 205)"));
-  it("reprend le code Cardmarket quand il est connu", () =>
-    expect(wantsLine({ nom_fr: "Bulbizarre", set_name: "151", numero: "166", code_cm: "MEW 166" })).toBe(
+    expect(wantsLine({ nom_fr: "Mew\nex", set_name: "151", numero: "205", code_cm: null, nom_cm: null })).toBe(
+      "1 Mew ex (151 205)",
+    ));
+  it("format Deck List Cardmarket : nom anglais et attaques, sans crochets", () =>
+    expect(
+      wantsLine({
+        nom_fr: "Rattatac",
+        set_name: "Perfect Order",
+        numero: "99",
+        code_cm: "POR 099",
+        nom_cm: "Raticate [Scrape Off | Retaliatory Incisors]",
+      }),
+    ).toBe("1 Raticate Scrape Off Retaliatory Incisors"));
+  it("sans nom Cardmarket : repli sur le libellé de recherche", () =>
+    expect(wantsLine({ nom_fr: "Bulbizarre", set_name: "151", numero: "166", code_cm: "MEW 166", nom_cm: null })).toBe(
       "1 Bulbizarre (MEW 166)",
     ));
 });

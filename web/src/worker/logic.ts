@@ -20,6 +20,8 @@ export interface Card {
   id_product: number | null;
   /** Code affiché par Cardmarket à côté du nom (« MEW 166 ») ; null si inconnu. */
   code_cm: string | null;
+  /** Nom du produit Cardmarket (« Tauros [Target Together] ») ; null si inconnu. */
+  nom_cm: string | null;
   image: string | null;
 }
 export interface Owned {
@@ -80,7 +82,14 @@ export function cardmarketLabel(c: Pick<Card, "nom_fr" | "set_name" | "numero" |
   return `${nom} (${c.code_cm ?? `${c.set_name} ${c.numero}`})`.replace(/[\u0000-\u001f]/g, " ");
 }
 
-/** Ligne de liste d'envies à coller dans Cardmarket. */
-export function wantsLine(c: Pick<Card, "nom_fr" | "set_name" | "numero" | "code_cm">): string {
-  return `1 ${cardmarketLabel(c)}`;
+/**
+ * Ligne pour l'import « Deck List » des Wants Cardmarket : nom anglais et attaques, sans crochets
+ * (« 1 Tauros Target Together »). Cet import ignore extension et numéro ; sans nom Cardmarket connu,
+ * repli sur le libellé de recherche, que l'import ne reconnaîtra pas.
+ */
+export function wantsLine(c: Pick<Card, "nom_fr" | "set_name" | "numero" | "code_cm" | "nom_cm">): string {
+  if (!c.nom_cm) return `1 ${cardmarketLabel(c)}`;
+  // eslint-disable-next-line no-control-regex
+  const nom = c.nom_cm.replace(/[[\]|]/g, " ").replace(/[\u0000-\u001f]/g, " ");
+  return `1 ${nom.replace(/\s+/g, " ").trim()}`;
 }
