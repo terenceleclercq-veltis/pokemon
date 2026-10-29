@@ -5,7 +5,12 @@ updates:
     schedule: { interval: weekly, day: monday }
     cooldown: { default-days: 7 } # laisser le temps aux paquets compromis d'être retirés
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "@types/node" # suit la version de Node de la CI (web/.nvmrc)
+        update-types: ["version-update:semver-major"]
     groups:
+      vitest: # vitest et ses plugins ont des peerDependencies exactes : toujours ensemble
+        patterns: ["vitest", "@vitest/*"]
       outillage:
         dependency-type: development
         update-types: [minor, patch]
