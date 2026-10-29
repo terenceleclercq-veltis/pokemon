@@ -71,8 +71,13 @@ Les Character Rare (catégorie `CHR`, full art avec dresseur) comptent comme ful
 main (comme les promos IR) : relancer `04_catalogue.py` les effacerait.
 
 **Veille** : `.github/workflows/veille-catalogue.yml` lance chaque lundi `scripts/08_veille_catalogue.py`, qui
-ouvre ou met à jour l'issue « Veille catalogue : nouvelles IR/SIR » quand TCGdex publie une IR/SIR absente du
-catalogue (japonaise seulement pour une espèce sans IR/SIR française). L'ajout reste une PR vérifiée à la main.
+ouvre ou met à jour l'issue « Veille catalogue : nouvelles IR/SIR ». Il parcourt carte par carte les extensions
+françaises de moins de 400 jours et les sets de promos (`svp`, `mep`) : les cartes récentes n'ont souvent pas de
+`dexId` chez TCGdex, et les libellés de rareté varient (« Illustration spéciale rare »). Il signale les IR/SIR
+absentes du catalogue et toute nouvelle promo de Kanto (TCGdex ne distingue pas le style des promos : vérification
+visuelle). Une promo écartée va dans `data/promos_examinees.txt`. Japonais : seulement pour une espèce sans IR/SIR
+française. Limite : une carte encore absente de TCGdex (ex. Nidorina MEP 101 à sa sortie) n'est pas vue ; l'ajout
+reste une PR vérifiée à la main.
 
 **Catalogue** : `data/catalogue_fullart.csv` → `scripts/07_codes_cardmarket.py` (code Cardmarket « MEW 166 », depuis
 TCGdex) → `scripts/06_seed_web.py` → `web/seed.sql`. Au premier déploiement d'un environnement (base vide), le pipeline charge `seed.sql`. Ensuite, toute

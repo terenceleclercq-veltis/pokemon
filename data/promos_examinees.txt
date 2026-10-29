@@ -1,0 +1,60 @@
+# Promos de Kanto relevées le 29/10/2026 et non retenues. Un id TCGdex par ligne (« # » : commentaire).
+# Vérifiées visuellement : style classique. Les autres concernent des espèces qui ont déjà une IR/SIR française ;
+# en retirer une ligne pour qu'elle soit de nouveau signalée par 08_veille_catalogue.py.
+mep-037  # #001 Bulbizarre : espèce déjà pourvue d'une IR/SIR
+svp-046  # #001 Bulbizarre : espèce déjà pourvue d'une IR/SIR
+mep-013  # #003 Méga-Florizarre-ex : espèce déjà pourvue d'une IR/SIR
+mep-038  # #004 Salamèche : espèce déjà pourvue d'une IR/SIR
+svp-044  # #004 Salamèche : espèce déjà pourvue d'une IR/SIR
+svp-047  # #004 Salamèche : espèce déjà pourvue d'une IR/SIR
+mep-079  # #005 Reptincel : espèce déjà pourvue d'une IR/SIR
+svp-056  # #006 Dracaufeu-ex : espèce déjà pourvue d'une IR/SIR
+svp-074  # #006 Dracaufeu-ex : espèce déjà pourvue d'une IR/SIR
+svp-161  # #006 Dracaufeu-ex : espèce déjà pourvue d'une IR/SIR
+svp-196  # #006 Dracaufeu-ex : espèce déjà pourvue d'une IR/SIR
+mep-023  # #006 Méga-Dracaufeu X-ex : espèce déjà pourvue d'une IR/SIR
+mep-029  # #006 Méga-Dracaufeu X-ex : espèce déjà pourvue d'une IR/SIR
+mep-030  # #006 Méga-Dracaufeu Y-ex : espèce déjà pourvue d'une IR/SIR
+mep-039  # #007 Carapuce : espèce déjà pourvue d'une IR/SIR
+svp-048  # #007 Carapuce : espèce déjà pourvue d'une IR/SIR
+svp-027  # #025 Pikachu : espèce déjà pourvue d'une IR/SIR
+svp-088  # #025 Pikachu : espèce déjà pourvue d'une IR/SIR
+svp-101  # #025 Pikachu : espèce déjà pourvue d'une IR/SIR
+svp-190  # #025 Pikachu : espèce déjà pourvue d'une IR/SIR
+svp-225  # #025 Pikachu : espèce déjà pourvue d'une IR/SIR
+svp-106  # #025 Pikachu-ex : espèce déjà pourvue d'une IR/SIR
+svp-217  # #034 Nidoking-ex de la Team Rocket : espèce déjà pourvue d'une IR/SIR
+svp-195  # #035 Mélofée-ex de Lilie : espèce déjà pourvue d'une IR/SIR
+mep-072  # #036 Méga-Mélodelfe-ex : espèce déjà pourvue d'une IR/SIR
+svp-218  # #053 Persian-ex de la Team Rocket : espèce déjà pourvue d'une IR/SIR
+mep-007  # #054 Psykokwak : espèce déjà pourvue d'une IR/SIR
+mep-008  # #055 Akwakwak : vérifiée (Bulbapedia) : holo classique
+svp-024  # #058 Caninos : espèce déjà pourvue d'une IR/SIR
+svp-011  # #059 Arcanin : vérifiée : cadre classique
+mep-003  # #065 Alakazam : espèce déjà pourvue d'une IR/SIR
+mep-009  # #065 Alakazam : espèce déjà pourvue d'une IR/SIR
+svp-050  # #065 Alakazam-ex : espèce déjà pourvue d'une IR/SIR
+mep-086  # #079 Ramoloss : espèce déjà pourvue d'une IR/SIR
+mep-083  # #080 Flagadoss : espèce déjà pourvue d'une IR/SIR
+svp-153  # #082 Magnéton : espèce déjà pourvue d'une IR/SIR
+mep-073  # #094 Méga-Ectoplasma-ex : espèce déjà pourvue d'une IR/SIR
+svp-202  # #115 Kangourex : espèce déjà pourvue d'une IR/SIR
+svp-055  # #115 Kangourex-ex : espèce déjà pourvue d'une IR/SIR
+mep-025  # #115 Méga-Kangourex-ex : espèce déjà pourvue d'une IR/SIR
+svp-137  # #116 Hypotrempe : espèce déjà pourvue d'une IR/SIR
+svp-164  # #131 Lokhlass-ex : espèce déjà pourvue d'une IR/SIR
+svp-043  # #133 Évoli : espèce déjà pourvue d'une IR/SIR
+svp-173  # #133 Évoli : espèce déjà pourvue d'une IR/SIR
+svp-200  # #133 Évoli : espèce déjà pourvue d'une IR/SIR
+svp-174  # #133 Évoli-ex : espèce déjà pourvue d'une IR/SIR
+svp-168  # #134 Aquali : espèce déjà pourvue d'une IR/SIR
+svp-169  # #135 Voltali : espèce déjà pourvue d'une IR/SIR
+svp-167  # #136 Pyroli : espèce déjà pourvue d'une IR/SIR
+svp-122  # #143 Ronflex : espèce déjà pourvue d'une IR/SIR
+svp-184  # #143 Ronflex de Nabil : espèce déjà pourvue d'une IR/SIR
+svp-157  # #145 Électhor : espèce déjà pourvue d'une IR/SIR
+svp-049  # #145 Électhor-ex : espèce déjà pourvue d'une IR/SIR
+svp-052  # #150 Mewtwo : espèce déjà pourvue d'une IR/SIR
+svp-205  # #150 Mewtwo-ex de la Team Rocket : espèce déjà pourvue d'une IR/SIR
+svp-216  # #150 Mewtwo-ex de la Team Rocket : espèce déjà pourvue d'une IR/SIR
+svp-053  # #151 Mew-ex : espèce déjà pourvue d'une IR/SIR
