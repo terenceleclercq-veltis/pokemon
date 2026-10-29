@@ -42,7 +42,7 @@
         {
           "binding": "DB",
           "database_name": "pokedex-staging",
-          "database_id": "REMPLACER_ID_D1_STAGING",
+          "database_id": "c156c19d-5e16-4404-8635-151c1dee6304",
           "migrations_dir": "migrations",
         },
       ],
@@ -61,7 +61,7 @@
         {
           "binding": "DB",
           "database_name": "pokedex",
-          "database_id": "REMPLACER_ID_D1_PRODUCTION",
+          "database_id": "f46bde96-7cf0-4689-8e6e-93086a8a9e21",
           "migrations_dir": "migrations",
         },
       ],
