@@ -7,6 +7,7 @@ export default tseslint.config(
     ignores: [
       "node_modules",
       "public/app.js",
+      "public/placeholders.js",
       "coverage",
       "playwright-report",
       "test-results",

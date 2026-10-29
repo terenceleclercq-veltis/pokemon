@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Placeholders de binder · Pokédex Kanto</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/placeholders.css" />
+    <script type="module" src="/placeholders.js"></script>
+  </head>
+  <body>
+    <form id="opts" class="noprint">
+      <h1>Placeholders de binder</h1>
+      <p>
+        Une fiche au format carte (63 × 88 mm), 9 par feuille A4 comme un classeur 9 cases. Impression : A4,
+        <strong>échelle 100 %</strong> (pas « ajuster à la page »), marges « aucune », graphismes d'arrière-plan
+        activés.
+      </p>
+      <label
+        >Carte visée
+        <select id="tier">
+          <option value="rarest">La plus rare (SIR, sinon IR, sinon full art)</option>
+          <option value="sir_ir">SIR, sinon IR</option>
+          <option value="cheapest">La moins chère</option>
+          <option value="FA">Full art</option>
+          <option value="IR">IR</option>
+          <option value="SIR">SIR</option>
+        </select>
+      </label>
+      <label
+        >Espèces
+        <select id="scope">
+          <option value="missing">Manquantes</option>
+          <option value="all">Les 151 (binder complet)</option>
+        </select>
+      </label>
+      <button id="print" type="button">Imprimer</button>
+      <p id="count" role="status"></p>
+    </form>
+    <main id="sheets"></main>
+  </body>
+</html>
