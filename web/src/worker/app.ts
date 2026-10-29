@@ -28,6 +28,7 @@ import {
   speciesParam,
   wantsQuery,
   buylistQuery,
+  placeholdersQuery,
   type CardmarketCreds,
 } from "./schemas";
 
@@ -244,14 +245,21 @@ app.delete("/api/species/:num/keep", async (c) => {
 });
 
 type Species = Awaited<ReturnType<typeof pokedex>>[number];
-type WantTier = (typeof TIERS)[number] | "cheapest" | "sir_ir";
+type WantTier = (typeof TIERS)[number] | "cheapest" | "sir_ir" | "rarest";
 const byTrend = (a: { price: Price | null }, b: { price: Price | null }) =>
   (a.price?.trend ?? Infinity) - (b.price?.trend ?? Infinity);
 
-/** Carte(s) visée(s) pour une espèce manquante : la moins chère, une rareté, ou « SIR, sinon IR ». */
+/** Carte(s) visée(s) : la moins chère, une rareté, « SIR, sinon IR », ou la plus rare (SIR > IR > FA). */
 function wanted(s: Species, tier: WantTier): Species["cards"] {
   const opts = s.cards.filter((x) => s.options.some((o) => o.card_id === x.id));
   if (tier === "cheapest") return opts.sort(byTrend).slice(0, 1);
+  if (tier === "rarest") {
+    for (const t of ["SIR", "IR", "FA"] as const) {
+      const pick = opts.filter((x) => x.tier === t);
+      if (pick.length) return pick.slice(0, 1);
+    }
+    return [];
+  }
   if (tier === "sir_ir") {
     const sir = opts.filter((x) => x.tier === "SIR");
     return (sir.length ? sir : opts.filter((x) => x.tier === "IR")).slice(0, 1);
@@ -283,6 +291,31 @@ app.get("/api/buylist", async (c) => {
     items.push({ num: x.species_num, espece: x.espece, label: x.cm_label, url: x.cm_url, trend: p ?? null });
   }
   return c.json({ items, total: Math.round(total * 100) / 100, budget: budget ?? null });
+});
+
+/** Placeholders de binder : une fiche par espèce (manquantes ou toutes) avec la carte visée. */
+app.get("/api/placeholders", async (c) => {
+  const { tier, scope } = parse(placeholdersQuery, c.req.query());
+  const items = (await pokedex(c.env.DB))
+    .filter((s) => scope === "all" || s.status === "manquante")
+    .map((s) => {
+      const x = wanted(s, tier)[0];
+      return {
+        num: s.num,
+        nom_fr: s.nom_fr,
+        card: x
+          ? {
+              nom_fr: x.nom_fr,
+              code: x.code_cm,
+              set_name: x.set_name,
+              tier: x.tier,
+              image: x.image,
+              trend: x.price?.trend ?? null,
+            }
+          : null,
+      };
+    });
+  return c.json({ items });
 });
 
 app.get("/api/export", async (c) => {

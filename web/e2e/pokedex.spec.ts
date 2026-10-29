@@ -158,3 +158,16 @@ test("la CSP est bien envoyée et stricte", async ({ page }) => {
   expect(csp).not.toContain("unsafe-inline");
   expect(csp).not.toContain("unsafe-eval");
 });
+
+test("placeholders : 9 fiches par feuille A4, sans violation CSP", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (m) => {
+    if (m.type() === "error") errors.push(m.text());
+  });
+  await page.goto("/placeholders.html");
+  await page.locator("#scope").selectOption("all");
+  await expect(page.locator("#count")).toHaveText("151 fiches · 17 feuilles A4");
+  await expect(page.locator(".sheet").first().locator(".ph")).toHaveCount(9);
+  await expect(page.locator(".ph").first()).toContainText("#001");
+  expect(errors).toEqual([]);
+});

@@ -7,6 +7,8 @@ web/.wrangler/
 web/.dev.vars*
 web/public/app.js
 web/public/app.js.map
+web/public/placeholders.js
+web/public/placeholders.js.map
 web/coverage/
 web/playwright-report/
 web/test-results/

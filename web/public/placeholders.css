@@ -1,0 +1,97 @@
+/* Placeholders imprimables : 63 × 88 mm (format carte), 3 × 3 par feuille A4. */
+@page {
+  size: A4;
+  margin: 0;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  color: #222;
+  background: #eee;
+}
+.noprint {
+  max-width: 210mm;
+  margin: 16px auto;
+  padding: 0 16px;
+}
+.noprint label {
+  margin-right: 12px;
+}
+.sheet {
+  width: 210mm;
+  height: 297mm;
+  margin: 0 auto 8mm;
+  padding: 16.5mm 10.5mm;
+  background: #fff;
+  display: grid;
+  grid-template-columns: repeat(3, 63mm);
+  grid-auto-rows: 88mm;
+  break-after: page;
+}
+.ph {
+  position: relative;
+  overflow: hidden;
+  border: 0.2mm dashed #999;
+  padding: 3mm;
+  display: flex;
+  flex-direction: column;
+  gap: 1mm;
+}
+.ph .num {
+  font-size: 9mm;
+  font-weight: 700;
+  line-height: 1;
+  color: #c33;
+}
+.ph .name {
+  font-size: 4.5mm;
+  font-weight: 600;
+}
+.ph img {
+  width: 100%;
+  height: 44mm;
+  object-fit: contain;
+  filter: grayscale(1);
+  opacity: 0.45;
+}
+.ph .noimg {
+  height: 44mm;
+  display: grid;
+  place-items: center;
+  color: #aaa;
+  font-size: 3mm;
+}
+.ph .card {
+  font-size: 3mm;
+  line-height: 1.3;
+}
+.ph .code {
+  font:
+    700 3.6mm ui-monospace,
+    monospace;
+}
+.ph .tier {
+  position: absolute;
+  top: 3mm;
+  right: 3mm;
+  padding: 0.5mm 1.5mm;
+  border: 0.3mm solid #c33;
+  border-radius: 1mm;
+  font-size: 3mm;
+  font-weight: 700;
+  color: #c33;
+}
+@media print {
+  body {
+    background: #fff;
+  }
+  .noprint {
+    display: none;
+  }
+  .sheet {
+    margin: 0;
+  }
+}
