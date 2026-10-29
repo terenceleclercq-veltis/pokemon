@@ -38,7 +38,7 @@
         "ACCESS_TEAM": "weathered-sun-382a",
         "ACCESS_AUD": "9f3e565bf4ee9630b02345f64ed86d55ac8f9566084abfd539826e0cefc6a44c",
         "ALLOWED_EMAIL": "terence.leclercq@veltis.be",
-        "CI_SERVICE_TOKEN_ID": "REMPLACER",
+        "CI_SERVICE_TOKEN_ID": "5dd7b0b8ae04e81785cd25e2e4df4835.access",
       },
       "d1_databases": [
         {
@@ -59,7 +59,7 @@
         "ACCESS_TEAM": "weathered-sun-382a",
         "ACCESS_AUD": "32b7e972e3ade97bff353e72ac68f74189a22f5953375d77913f959c8fa90bfd",
         "ALLOWED_EMAIL": "terence.leclercq@veltis.be",
-        "CI_SERVICE_TOKEN_ID": "REMPLACER",
+        "CI_SERVICE_TOKEN_ID": "5dd7b0b8ae04e81785cd25e2e4df4835.access",
       },
       "d1_databases": [
         {
