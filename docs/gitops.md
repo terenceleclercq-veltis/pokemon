@@ -60,11 +60,19 @@ dans une livraison suivante. Jamais de `DROP` ou de renommage dans la même livr
 Rare » sont ajoutées à la main (catégorie `PROMO_IR`, comptée comme IR) après vérification visuelle ; TCGdex les classe
 toutes en « Promo » sans distinguer le style.
 
-**Cartes dans une autre langue** : seulement pour une espèce qui n'a **aucune** IR ni SIR en français (promos IR
-comprises). Lignes à la main dans le CSV : `existe_en_fr = non`, `langue` (code TCGdex, ex. `ja`), `id_tcgdex_autre`
-(id TCGdex dans cette langue), catégorie `AR`/`SAR` (comptée IR/SIR). `06_seed_web.py` ignore une telle ligne dès
-qu'une IR/SIR française existe pour l'espèce ; les prix sont lus sur `api.tcgdex.net/v2/<langue>/cards/<id>`. Les
-formes (Hisui, Méga…) restent exclues comme dans le catalogue français.
+**Catalogue de repli** (décisions de Terence, 29/10/2026), appliqué par `06_seed_web.py` dans cet ordre :
+1. *Formes* (Hisui, Alola, Galar, Méga, Tag Team avec une Méga) : colonne `forme = oui`, retenues seulement si
+   l'espèce n'a aucune IR/SIR de forme normale en français.
+2. *Autre langue* : `existe_en_fr = non`, `langue` (code TCGdex, ex. `ja`), `id_tcgdex_autre`, catégorie `AR`/`SAR`
+   (comptée IR/SIR) ; retenue seulement si l'espèce n'a aucune IR/SIR en français, formes comprises. Prix lus sur
+   `api.tcgdex.net/v2/<langue>/cards/<id>`.
+3. *Chromatiques sans full art* (catégorie `SHINY`) : seulement si l'espèce n'a aucune autre carte.
+Les Character Rare (catégorie `CHR`, full art avec dresseur) comptent comme full art. Ces lignes sont ajoutées à la
+main (comme les promos IR) : relancer `04_catalogue.py` les effacerait.
+
+**Veille** : `.github/workflows/veille-catalogue.yml` lance chaque lundi `scripts/08_veille_catalogue.py`, qui
+ouvre ou met à jour l'issue « Veille catalogue : nouvelles IR/SIR » quand TCGdex publie une IR/SIR absente du
+catalogue (japonaise seulement pour une espèce sans IR/SIR française). L'ajout reste une PR vérifiée à la main.
 
 **Catalogue** : `data/catalogue_fullart.csv` → `scripts/07_codes_cardmarket.py` (code Cardmarket « MEW 166 », depuis
 TCGdex) → `scripts/06_seed_web.py` → `web/seed.sql`. Au premier déploiement d'un environnement (base vide), le pipeline charge `seed.sql`. Ensuite, toute

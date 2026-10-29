@@ -7,7 +7,7 @@ import csv
 
 from common import DATA, ROOT
 
-# promo au style IR = IR ; AR/SAR (japonais) = IR/SIR ; le reste (UR_ex, FA_*, TG, GG, SHINY_*) = FA
+# promo au style IR = IR ; AR/SAR (japonais) = IR/SIR ; le reste (UR_ex, FA_*, TG, GG, CHR, SHINY*) = FA
 TIER = {"IR": "IR", "SIR": "SIR", "PROMO_IR": "IR", "AR": "IR", "SAR": "SIR"}
 
 
@@ -24,12 +24,20 @@ def main():
         )
     ids = []
     rows = list(csv.DictReader(open(DATA / "catalogue_fullart.csv", encoding="utf-8")))
+    rare = lambda rs: {r["numero_pokedex"] for r in rs if TIER.get(r["categorie_fullart"]) in ("IR", "SIR")}
     fr = [r for r in rows if r["existe_en_fr"] == "oui" and r["id_tcgdex_fr"]]
-    # Autre langue (id_tcgdex_autre) seulement si l'espèce n'a aucune IR ni SIR en français.
-    rares_fr = {r["numero_pokedex"] for r in fr if TIER.get(r["categorie_fullart"]) in ("IR", "SIR")}
+    # Règles de repli, dans l'ordre (décisions de Terence) :
+    # 1. forme (Hisui, Alola, Méga…) seulement si l'espèce n'a aucune IR/SIR de forme normale en français ;
+    base = [r for r in fr if not r.get("forme") and r["categorie_fullart"] != "SHINY"]
+    formes = [r for r in fr if r.get("forme") and r["categorie_fullart"] != "SHINY"
+              and r["numero_pokedex"] not in rare(base)]
+    # 2. autre langue (id_tcgdex_autre) seulement si l'espèce n'a aucune IR/SIR en français, formes comprises ;
     autres = [r for r in rows if r.get("langue", "fr") != "fr" and r.get("id_tcgdex_autre")
-              and r["numero_pokedex"] not in rares_fr]
-    for r in fr + autres:
+              and r["numero_pokedex"] not in rare(base + formes)]
+    # 3. chromatique sans full art seulement si l'espèce n'a aucune autre carte.
+    avec_carte = {r["numero_pokedex"] for r in base + formes + autres}
+    shiny = [r for r in fr if r["categorie_fullart"] == "SHINY" and r["numero_pokedex"] not in avec_carte]
+    for r in base + formes + autres + shiny:
         langue = r.get("langue") or "fr"
         cid = r["id_tcgdex_fr"] if langue == "fr" else r["id_tcgdex_autre"]
         if cid in ids:
@@ -52,7 +60,8 @@ def main():
     out.append(f"DELETE FROM cards WHERE id NOT IN ({keep}) AND id NOT IN "
                "(SELECT card_id FROM owned WHERE card_id IS NOT NULL);")
     (ROOT / "web" / "seed.sql").write_text("\n".join(out) + "\n", encoding="utf-8")
-    print(len(ids), "cartes dans web/seed.sql, dont", len(autres), "dans une autre langue")
+    print(len(ids), "cartes dans web/seed.sql, dont", len(formes), "formes,", len(autres), "dans une autre langue,",
+          len(shiny), "chromatiques")
 
 
 if __name__ == "__main__":

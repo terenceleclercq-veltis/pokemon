@@ -10,6 +10,11 @@ const STATUS_LABEL: Record<Species["status"], string> = {
 const TIER_LABEL: Record<Tier, string> = { FA: "Full art", IR: "Illustration Rare", SIR: "Special Illustration Rare" };
 /** Cartes hors français : ajoutées seulement quand l'espèce n'a aucune IR/SIR en français. */
 const LANGUE_LABEL: Record<string, string> = { ja: "Japonaise" };
+/** Cartes de repli, signalées comme telles dans la fiche. */
+const CATEGORIE_NOTE: Record<string, string> = {
+  CHR: "Character Rare",
+  SHINY: "chromatique, pas full art (faute d'autre carte)",
+};
 const langueOf = (langue: string) => (langue === "fr" ? null : (LANGUE_LABEL[langue] ?? langue.toUpperCase()));
 const TIERS: Tier[] = ["FA", "IR", "SIR"];
 
@@ -326,7 +331,9 @@ function paint(s: Species, loading: boolean): void {
             h(
               "div",
               { class: "mut" },
-              `${c.set_name} · ${c.numero}${c.confiance === "probable" ? " · full art probable" : ""}`,
+              `${c.set_name} · ${c.numero}${c.confiance === "probable" ? " · full art probable" : ""}${
+                CATEGORIE_NOTE[c.categorie] ? ` · ${CATEGORIE_NOTE[c.categorie]}` : ""
+              }`,
             ),
             c.cm_url ? cmLink(c.cm_url, c.cm_label) : null,
           ),
