@@ -40,10 +40,11 @@ echo "  Jeton CI à créer dans le compte pokemon (Manage Account > Account API 
 echo "    Account > Workers Scripts > Edit ; Account > D1 > Edit ; Account > Account Settings > Read"
 echo "  (aucune permission Zone : le site est servi sur workers.dev)."
 lire_secret CF_ACCOUNT_ID "Account ID du compte pokemon"
-lire_secret CF_CI_TOKEN "CLOUDFLARE_API_TOKEN (jeton CI ci-dessus)"
+read -rsp "  CLOUDFLARE_API_TOKEN (nouveau jeton CI, ou Entrée pour garder l'actuel s'il couvre le compte pokemon) : " CF_CI_TOKEN
+echo
 for env in staging production; do
   poser_secret CLOUDFLARE_ACCOUNT_ID "$env" "$CF_ACCOUNT_ID"
-  poser_secret CLOUDFLARE_API_TOKEN "$env" "$CF_CI_TOKEN"
+  if [ -n "$CF_CI_TOKEN" ]; then poser_secret CLOUDFLARE_API_TOKEN "$env" "$CF_CI_TOKEN"; else ok "CLOUDFLARE_API_TOKEN ($env) inchangé"; fi
 done
 unset CF_CI_TOKEN
 
