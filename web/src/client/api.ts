@@ -14,6 +14,8 @@ export interface Card {
   code_cm: string | null;
   /** Libellé exact de la recherche Cardmarket, calculé par le serveur. */
   cm_label: string;
+  /** Page Cardmarket de la version exacte ; null si idProduct inconnu. */
+  cm_url: string | null;
   tier: Tier;
   confiance: string;
   image: string | null;

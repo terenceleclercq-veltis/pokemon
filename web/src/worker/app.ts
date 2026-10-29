@@ -15,6 +15,7 @@ import {
   TIERS,
   wantsLine,
   cardmarketLabel,
+  cardmarketUrl,
   type Card,
   type Price,
 } from "./logic";
@@ -26,6 +27,7 @@ import {
   ownedBody,
   speciesParam,
   wantsQuery,
+  buylistQuery,
   type CardmarketCreds,
 } from "./schemas";
 
@@ -124,7 +126,12 @@ async function pokedex(db: D1Database) {
       keep: keep.get(s.num) ?? null,
       higher: o ? higherThan(cards, o).map((c) => c.id) : [],
       options: TIERS.flatMap((t) => (best[t] ? [{ tier: t, label: TIER_LABEL[t], card_id: best[t].id }] : [])),
-      cards: cards.map((c) => ({ ...c, cm_label: cardmarketLabel(c), price: price[c.id] ?? null })),
+      cards: cards.map((c) => ({
+        ...c,
+        cm_label: cardmarketLabel(c),
+        cm_url: c.id_product ? cardmarketUrl(c.id_product) : null,
+        price: price[c.id] ?? null,
+      })),
     };
   });
 }
@@ -236,19 +243,46 @@ app.delete("/api/species/:num/keep", async (c) => {
   return c.json({ ok: true });
 });
 
+type Species = Awaited<ReturnType<typeof pokedex>>[number];
+type WantTier = (typeof TIERS)[number] | "cheapest" | "sir_ir";
+const byTrend = (a: { price: Price | null }, b: { price: Price | null }) =>
+  (a.price?.trend ?? Infinity) - (b.price?.trend ?? Infinity);
+
+/** Carte(s) visée(s) pour une espèce manquante : la moins chère, une rareté, ou « SIR, sinon IR ». */
+function wanted(s: Species, tier: WantTier): Species["cards"] {
+  const opts = s.cards.filter((x) => s.options.some((o) => o.card_id === x.id));
+  if (tier === "cheapest") return opts.sort(byTrend).slice(0, 1);
+  if (tier === "sir_ir") {
+    const sir = opts.filter((x) => x.tier === "SIR");
+    return (sir.length ? sir : opts.filter((x) => x.tier === "IR")).slice(0, 1);
+  }
+  return opts.filter((x) => x.tier === tier);
+}
+
 app.get("/api/wants", async (c) => {
   const { tier } = parse(wantsQuery, c.req.query());
   const lines = (await pokedex(c.env.DB))
     .filter((s) => s.status === "manquante")
-    .flatMap((s) => {
-      const opts = s.cards.filter((x) => s.options.some((o) => o.card_id === x.id));
-      const pick =
-        tier === "cheapest"
-          ? opts.sort((a, b) => (a.price?.trend ?? Infinity) - (b.price?.trend ?? Infinity)).slice(0, 1)
-          : opts.filter((x) => x.tier === tier);
-      return pick.map(wantsLine);
-    });
+    .flatMap((s) => wanted(s, tier).map(wantsLine));
   return c.text(lines.join("\n"));
+});
+
+/** Liste d'achat : liens vers la version exacte sur Cardmarket, du moins cher au plus cher, dans le budget. */
+app.get("/api/buylist", async (c) => {
+  const { tier, budget } = parse(buylistQuery, c.req.query());
+  const all = (await pokedex(c.env.DB))
+    .filter((s) => s.status === "manquante")
+    .flatMap((s) => wanted(s, tier).map((x) => ({ ...x, espece: s.nom_fr })))
+    .sort(byTrend);
+  let total = 0;
+  const items = [];
+  for (const x of all) {
+    const p = x.price?.trend;
+    if (budget !== undefined && (p == null || total + p > budget)) continue;
+    total += p ?? 0;
+    items.push({ num: x.species_num, espece: x.espece, label: x.cm_label, url: x.cm_url, trend: p ?? null });
+  }
+  return c.json({ items, total: Math.round(total * 100) / 100, budget: budget ?? null });
 });
 
 app.get("/api/export", async (c) => {

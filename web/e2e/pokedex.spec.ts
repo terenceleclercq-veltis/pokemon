@@ -96,6 +96,23 @@ test("code Cardmarket affiché et copié pour la recherche", async ({ page, cont
   await page.getByRole("dialog").getByRole("button", { name: "Copier « Bulbizarre (MEW 166) »" }).click();
   await expect(page.locator(".toast")).toContainText("Copié : Bulbizarre (MEW 166)");
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("Bulbizarre (MEW 166)");
+  const link = page.getByRole("dialog").getByRole("link", { name: "Bulbizarre (MEW 166) sur Cardmarket" });
+  await expect(link).toHaveAttribute("href", "https://www.cardmarket.com/fr/Pokemon/Products?idProduct=733761");
+  await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+});
+
+test("liste d'achat : liens Cardmarket vers la version exacte", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Réglages" }).click();
+  await page.locator("#wants-tier").selectOption("sir_ir");
+  // pas de budget : la base E2E n'a pas de prix, et le budget écarte les cartes sans prix
+  await page.getByRole("button", { name: "Afficher" }).click();
+  const links = page.locator("#buylist a");
+  await expect(links.first()).toHaveAttribute(
+    "href",
+    /^https:\/\/www\.cardmarket\.com\/fr\/Pokemon\/Products\?idProduct=\d+$/,
+  );
+  await expect(page.locator("#buylist")).toContainText("hors port");
 });
 
 test("réglages : liste d'envies et export", async ({ page, context, isMobile }) => {

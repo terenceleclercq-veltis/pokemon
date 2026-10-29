@@ -64,11 +64,22 @@
         <label class="sr" for="wants-tier">Rareté</label>
         <select id="wants-tier">
           <option value="cheapest">La moins chère</option>
+          <option value="sir_ir">SIR, sinon IR</option>
           <option value="FA">Full art</option>
           <option value="IR">IR</option>
           <option value="SIR">SIR</option>
         </select>
         <button id="btn-wants" type="button">Copier</button>
+      </section>
+      <section>
+        <h3>Liste d'achat</h3>
+        <p>
+          Les cartes manquantes (rareté choisie ci-dessus), de la moins chère à la plus chère, avec un lien vers la
+          version exacte sur Cardmarket. Prix tendance, hors frais de port.
+        </p>
+        <label>Budget (€, facultatif) <input id="buy-budget" type="number" min="1" max="100000" step="1" /></label>
+        <button id="btn-buylist" type="button">Afficher</button>
+        <div id="buylist" aria-live="polite"></div>
       </section>
       <section>
         <h3>Sauvegarde</h3>

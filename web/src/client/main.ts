@@ -20,6 +20,15 @@ const cheapest = (s: Species) =>
     .sort((a, b) => a - b)[0];
 
 /** Action utilisateur : désactive le bouton pendant l'appel, toute erreur devient un message (aucun rejet non géré). */
+/** Lien vers la version exacte sur Cardmarket (nouvel onglet, sans référent). */
+function cmLink(url: string, label: string): HTMLAnchorElement {
+  return h(
+    "a",
+    { href: url, target: "_blank", rel: "noopener noreferrer", "aria-label": `${label} sur Cardmarket` },
+    "Voir les offres sur Cardmarket ↗",
+  );
+}
+
 /** Code Cardmarket (« MEW 166 ») : un clic copie le libellé exact de la recherche (« Bulbizarre (MEW 166) »). */
 function cmCode(code: string, label: string): HTMLButtonElement {
   return h(
@@ -227,6 +236,7 @@ function paint(s: Species, loading: boolean): void {
               { class: "mut" },
               `${c.set_name} · ${c.numero}${c.confiance === "probable" ? " · full art probable" : ""}`,
             ),
+            c.cm_url ? cmLink(c.cm_url, c.cm_label) : null,
           ),
           h(
             "div",
@@ -320,6 +330,34 @@ function bind(): void {
   $("btn-settings").addEventListener("click", () => {
     void settingsState().catch(() => undefined);
     $as("settings", HTMLDialogElement).showModal();
+  });
+  $("btn-buylist").addEventListener("click", (e) => {
+    action(e.currentTarget as HTMLButtonElement, async () => {
+      const q = new URLSearchParams({ tier: $as("wants-tier", HTMLSelectElement).value });
+      const budget = $as("buy-budget", HTMLInputElement).value;
+      if (budget) q.set("budget", budget);
+      const r = (await (await api(`/api/buylist?${q.toString()}`)).json()) as {
+        items: { espece: string; label: string; url: string | null; trend: number | null }[];
+        total: number;
+        budget: number | null;
+      };
+      const ol = h("ol", { class: "buylist" });
+      for (const it of r.items)
+        ol.append(
+          h(
+            "li",
+            {},
+            it.url
+              ? h("a", { href: it.url, target: "_blank", rel: "noopener noreferrer" }, it.label)
+              : h("span", {}, `${it.label} (lien inconnu)`),
+            ` · ${it.espece} · ${eur(it.trend)}`,
+          ),
+        );
+      const sum = `${r.items.length} carte${r.items.length > 1 ? "s" : ""} · ${eur(r.total)}${
+        r.budget ? ` sur ${eur(r.budget)}` : ""
+      } (tendance, hors port)`;
+      $("buylist").replaceChildren(h("p", { class: "mut" }, sum), ol);
+    });
   });
   $("btn-wants").addEventListener("click", (e) => {
     action(e.currentTarget as HTMLButtonElement, async () => {
