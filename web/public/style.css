@@ -418,6 +418,69 @@ ul.versions {
 .chip.lang {
   border-color: currentColor;
 }
+.chip.deal {
+  border-color: transparent;
+  background: var(--ok);
+  color: #fff;
+}
+button.link {
+  min-height: 0;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--keep);
+  font-size: 0.82rem;
+  text-decoration: underline;
+}
+button.primary {
+  border-color: var(--ok);
+  background: var(--ok);
+  color: #fff;
+}
+.acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 2px;
+}
+.spark {
+  color: var(--mut);
+}
+.spark.down {
+  color: var(--ok);
+}
+.spark.up {
+  color: var(--miss);
+}
+.opt.out {
+  opacity: 0.6;
+}
+.order {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px dashed var(--keep);
+  border-radius: 8px;
+}
+.order p {
+  margin: 0 0 6px;
+}
+details.check ul {
+  margin: 6px 0;
+  padding-left: 0;
+  list-style: none;
+}
+details.check li {
+  margin: 4px 0;
+  font-size: 0.88rem;
+}
+details.check summary {
+  cursor: pointer;
+  color: var(--keep);
+  font-size: 0.88rem;
+}
+.tile.ordered .mark {
+  background: var(--keep);
+}
 .price {
   font-weight: 600;
 }
@@ -509,6 +572,18 @@ li.buy .pr {
   flex-direction: column;
   align-items: flex-end;
   gap: 4px;
+}
+li.buy .pr input {
+  width: 6.5em;
+  text-align: right;
+}
+.btns {
+  display: flex;
+  gap: 4px;
+}
+section.orders {
+  border-top: 0;
+  padding-top: 0;
 }
 li.buy img,
 li.buy .ph {
@@ -718,8 +793,16 @@ dialog.viewer::backdrop {
   .opt .pr {
     grid-column: 1 / -1;
     flex-direction: row;
-    justify-content: space-between;
+    flex-wrap: wrap;
+    justify-content: flex-start;
     align-items: center;
+    gap: 4px 12px;
+    text-align: left;
+  }
+  .opt .pr > button,
+  .opt .pr > .badge {
+    margin-left: auto;
+    white-space: nowrap;
   }
 }
 @media (prefers-reduced-motion: reduce) {

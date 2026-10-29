@@ -4,6 +4,11 @@ export interface Price {
   trend: number | null;
   low: number | null;
   avg7?: number | null;
+  /** Moyenne des ventes sur 30 jours (repère « bon prix »). */
+  avg30?: number | null;
+  fetched_at?: string;
+  /** « cardmarket » (guide de prix quotidien) ou « tcgdex » (repli). */
+  source?: string;
   image?: string | null;
 }
 export interface Card {
@@ -22,8 +27,16 @@ export interface Card {
   confiance: string;
   /** « fr », ou autre langue seulement si l'espèce n'a aucune IR/SIR en français. */
   langue: string;
+  /** Version écartée : affichée, mais ignorée pour l'objectif et les achats. */
+  excluded: boolean;
   image: string | null;
   price: Price | null;
+}
+export interface Order {
+  id: number;
+  card_id: string;
+  price_paid: number | null;
+  ordered_at: string;
 }
 export type Status = "manquante" | "complete" | "a_verifier" | "choisie";
 export interface Species {
@@ -31,8 +44,12 @@ export interface Species {
   nom_fr: string;
   nom_en: string;
   status: Status;
-  /** Carte à acheter pour atteindre l'objectif (rareté la plus haute), null si l'espèce est terminée. */
+  /** Carte à acheter pour atteindre l'objectif (choix de Terence, sinon rareté la plus haute), null si terminée. */
   target: string | null;
+  /** Version choisie (« viser cette version »), null sinon. */
+  wish: string | null;
+  /** Commande en cours. */
+  order: Order | null;
   owned: { card_id: string | null; tier: Tier; note: string | null } | null;
   keep: { decided_at: string } | null;
   higher: string[];

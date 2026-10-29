@@ -406,10 +406,10 @@ describe("guide de prix Cardmarket", () => {
     prices: { "733761": { trend, low: 30, avg1: null, avg7: 60, avg30: 66.95 } },
   });
   const serve = (body: unknown) =>
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
       const url = input instanceof Request ? input.url : String(input);
-      if (url === FEED_URL) return Response.json(body);
-      throw new Error(`réseau interdit en test : ${url}`);
+      if (url === FEED_URL) return Promise.resolve(Response.json(body));
+      return Promise.reject(new Error(`réseau interdit en test : ${url}`));
     });
   it("applique le guide une seule fois, avec moyenne 30 jours et historique", async () => {
     serve(feed("2026-10-30T02:50:00+0100", 69.53));

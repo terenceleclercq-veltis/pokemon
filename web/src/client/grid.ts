@@ -14,6 +14,10 @@ function subtitle(s: Species): string {
   const goal = targetOf(s);
   const price = targetPrice(s);
   const what = goal?.categorie === "SHINY" ? "Chromatique" : (goal?.tier ?? "");
+  if (s.order) {
+    const paid = s.order.price_paid;
+    return `Commandée${paid != null ? ` · ${eur(paid)}` : ""}`;
+  }
   switch (s.status) {
     case "complete":
       return `Complète · ${s.owned?.tier ?? ""}`;
@@ -31,11 +35,11 @@ const MARK: Partial<Record<Species["status"], string>> = { complete: "✓", choi
 function tile(s: Species): HTMLElement {
   const v = visualOf(s);
   const sub = subtitle(s);
-  const mark = s.cards.length ? MARK[s.status] : undefined;
+  const mark = s.order ? "⏳" : s.cards.length ? MARK[s.status] : undefined;
   return h(
     "button",
     {
-      class: `tile ${s.cards.length ? s.status : "none"}`,
+      class: `tile ${s.cards.length ? s.status : "none"}${s.order ? " ordered" : ""}`,
       type: "button",
       role: "listitem",
       "data-num": s.num,
@@ -57,7 +61,7 @@ export function renderStats(): void {
   const st = stats(store.data);
   const text =
     `${st.done}/151 complètes · ${st.toBuy} à acheter · ${st.toUpgrade} à améliorer · ` +
-    `${st.none} sans carte · reste ≈ ${eur(st.remaining)}`;
+    `${st.ordered ? `${st.ordered} en commande · ` : ""}${st.none} sans carte · reste ≈ ${eur(st.remaining)}`;
   // n'annonce (aria-live) que les vrais changements
   if ($("progress").textContent !== text) $("progress").textContent = text;
   $("bar-fill").style.width = `${(st.done / 151) * 100}%`;
