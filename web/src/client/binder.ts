@@ -14,12 +14,11 @@ function slot(s: Species): HTMLElement {
   const label = src
     ? `${pad(s.num)} ${s.nom_fr} : ta carte, page ${page} case ${c}`
     : `${pad(s.num)} ${s.nom_fr} : case vide, page ${page} case ${c}`;
-  return h(
+  const button = h(
     "button",
     {
       type: "button",
       class: `slot${src ? " filled" : ""}${s.order ? " ordered" : ""}`,
-      role: "listitem",
       "data-num": s.num,
       "aria-label": label,
     },
@@ -38,6 +37,7 @@ function slot(s: Species): HTMLElement {
               : h("span", { class: "p" }, "aucune carte"),
         ),
   );
+  return h("li", {}, button);
 }
 
 export function renderBinder(): void {
@@ -55,7 +55,7 @@ export function renderBinder(): void {
           `Page ${p}`,
           h("span", { class: "mut" }, ` · n° ${(p - 1) * 9 + 1}–${Math.min(p * 9, 151)} · ${filled}/${species.length}`),
         ),
-        h("div", { class: "slots", role: "list" }, ...species.map(slot)),
+        h("ul", { class: "slots" }, ...species.map(slot)),
       ),
     );
   }
