@@ -31,43 +31,45 @@
   "ratelimits": [{ "name": "RATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 120, "period": 60 } }],
   "env": {
     "staging": {
+      // Compte Cloudflare « pokemon » : servi sur workers.dev, protégé par une application Access.
+      "workers_dev": true,
       "vars": {
         "ENVIRONMENT": "staging",
-        "ACCESS_TEAM": "glowandcare",
-        "ACCESS_AUD": "7e0333d29926fc500de815031c0ddbd891fbdb8f04e650834fddea8156186c3a",
+        "ACCESS_TEAM": "weathered-sun-382a",
+        "ACCESS_AUD": "9f3e565bf4ee9630b02345f64ed86d55ac8f9566084abfd539826e0cefc6a44c",
         "ALLOWED_EMAIL": "terence.leclercq@veltis.be",
-        "CI_SERVICE_TOKEN_ID": "47487786e10d69127cd8ed23a6412e14.access",
+        "CI_SERVICE_TOKEN_ID": "5dd7b0b8ae04e81785cd25e2e4df4835.access",
       },
       "d1_databases": [
         {
           "binding": "DB",
           "database_name": "pokedex-staging",
-          "database_id": "c156c19d-5e16-4404-8635-151c1dee6304",
+          "database_id": "365ae9f6-79af-4a1a-9c4a-21a88805f7f2",
           "migrations_dir": "migrations",
         },
       ],
       "ratelimits": [{ "name": "RATE_LIMITER", "namespace_id": "1002", "simple": { "limit": 120, "period": 60 } }],
-      "routes": [{ "pattern": "pokedex-staging.veltis.be", "custom_domain": true }],
       "triggers": { "crons": ["*/30 * * * *"] },
     },
     "production": {
+      // Compte Cloudflare « pokemon » : servi sur workers.dev, protégé par une application Access.
+      "workers_dev": true,
       "vars": {
         "ENVIRONMENT": "production",
-        "ACCESS_TEAM": "glowandcare",
-        "ACCESS_AUD": "7482661f7535422157e50a85bd40fdc5887dc4073f03de128e5b3b9db5b0854a",
+        "ACCESS_TEAM": "weathered-sun-382a",
+        "ACCESS_AUD": "32b7e972e3ade97bff353e72ac68f74189a22f5953375d77913f959c8fa90bfd",
         "ALLOWED_EMAIL": "terence.leclercq@veltis.be",
-        "CI_SERVICE_TOKEN_ID": "47487786e10d69127cd8ed23a6412e14.access",
+        "CI_SERVICE_TOKEN_ID": "5dd7b0b8ae04e81785cd25e2e4df4835.access",
       },
       "d1_databases": [
         {
           "binding": "DB",
           "database_name": "pokedex",
-          "database_id": "f46bde96-7cf0-4689-8e6e-93086a8a9e21",
+          "database_id": "d09ef417-faf3-4f20-a904-8fc72f96ea6f",
           "migrations_dir": "migrations",
         },
       ],
       "ratelimits": [{ "name": "RATE_LIMITER", "namespace_id": "1003", "simple": { "limit": 120, "period": 60 } }],
-      "routes": [{ "pattern": "pokedex.veltis.be", "custom_domain": true }],
       "triggers": { "crons": ["*/30 * * * *"] },
     },
   },

@@ -43,13 +43,14 @@ dans une livraison suivante. Jamais de `DROP` ou de renommage dans la même livr
 
 Je n'ai pas accès au compte Cloudflare ni aux réglages GitHub : ces étapes restent manuelles.
 
-**Cloudflare**
+**Cloudflare** (compte dédié « pokemon » ; migration des secrets GitHub : `scripts/migrer-compte-pokemon.sh`)
 1. Créer deux bases : `npx wrangler d1 create pokedex-staging` et `npx wrangler d1 create pokedex`, reporter les `database_id` dans `wrangler.jsonc`.
 2. Zero Trust → Access : une application par environnement (domaine du Worker), politique « Allow » = ton e-mail ;
    reporter `ACCESS_TEAM` et `ACCESS_AUD` dans `wrangler.jsonc`.
 3. Créer un **service token** « ci-smoke », l'autoriser dans chaque application (politique « Service Auth ») ; reporter son
    Client ID dans `CI_SERVICE_TOKEN_ID`. Le Worker ne lui ouvre que `GET /api/health`.
-4. Ajouter un domaine personnalisé au Worker (`routes` dans `wrangler.jsonc`) ; workers.dev reste désactivé.
+4. Le site est servi sur workers.dev (`workers_dev: true` par environnement, compte Cloudflare dédié « pokemon »,
+   sous-domaine `pokedex-terence`) ; l'hostname doit figurer dans l'application Access de l'environnement.
 5. `openssl rand -base64 32 | npx wrangler secret put ENC_KEY --env staging` (puis `--env production`, clé différente).
 6. Jeton API Cloudflare limité au compte : *Workers Scripts: Edit*, *D1: Edit*, *Workers Routes: Edit*, *Account Settings: Read*.
 
