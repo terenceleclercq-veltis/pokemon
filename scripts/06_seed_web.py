@@ -28,13 +28,14 @@ def main():
         ids.append(r["id_tcgdex_fr"])
         prod = r["url_cardmarket"].rsplit("=", 1)[-1] if r["url_cardmarket"] else ""
         out.append(
-            "INSERT INTO cards (id, species_num, nom_fr, set_name, numero, categorie, tier, confiance, id_product) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(id) DO UPDATE SET species_num = excluded.species_num, "
+            "INSERT INTO cards (id, species_num, nom_fr, set_name, numero, categorie, tier, confiance, id_product, code_cm) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(id) DO UPDATE SET species_num = excluded.species_num, "
             "nom_fr = excluded.nom_fr, set_name = excluded.set_name, numero = excluded.numero, "
             "categorie = excluded.categorie, tier = excluded.tier, confiance = excluded.confiance, "
-            "id_product = excluded.id_product;" % (
+            "id_product = excluded.id_product, code_cm = excluded.code_cm;" % (
                 q(r["id_tcgdex_fr"]), r["numero_pokedex"], q(r["carte_fr"]), q(r["set"]), q(r["numero"]),
-                q(r["categorie_fullart"]), q(TIER.get(r["categorie_fullart"], "FA")), q(r["confiance"]), prod or "NULL"))
+                q(r["categorie_fullart"]), q(TIER.get(r["categorie_fullart"], "FA")), q(r["confiance"]), prod or "NULL",
+                q(r.get("code_cardmarket"))))
     keep = ",".join(q(i) for i in ids)
     out.append(f"DELETE FROM price_cache WHERE card_id NOT IN ({keep}) AND card_id NOT IN "
                "(SELECT card_id FROM owned WHERE card_id IS NOT NULL);")

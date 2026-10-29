@@ -88,6 +88,16 @@ test("navigation clavier : Tab, Entrée, Échap", async ({ page, isMobile }) => 
   await expect(page.getByRole("dialog")).toBeHidden();
 });
 
+test("code Cardmarket affiché et copié pour la recherche", async ({ page, context, isMobile }) => {
+  test.skip(isMobile, "presse-papiers testé sur desktop");
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("/#q=Bulbizarre");
+  await page.locator(".tile").first().click();
+  await page.getByRole("dialog").getByRole("button", { name: "Copier « Bulbizarre (MEW 166) »" }).click();
+  await expect(page.locator(".toast")).toContainText("Copié : Bulbizarre (MEW 166)");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("Bulbizarre (MEW 166)");
+});
+
 test("réglages : liste d'envies et export", async ({ page, context, isMobile }) => {
   test.skip(isMobile, "presse-papiers testé sur desktop");
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);

@@ -214,6 +214,13 @@ dialog::backdrop {
   color: var(--chk);
   font-size: 0.9rem;
 }
+.code {
+  margin-left: 6px;
+  padding: 1px 6px;
+  font:
+    600 0.8rem ui-monospace,
+    monospace;
+}
 .badge {
   font-size: 0.8rem;
   color: var(--ok);

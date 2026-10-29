@@ -18,6 +18,8 @@ export interface Card {
   tier: Tier;
   confiance: string;
   id_product: number | null;
+  /** Code affiché par Cardmarket à côté du nom (« MEW 166 ») ; null si inconnu. */
+  code_cm: string | null;
   image: string | null;
 }
 export interface Owned {
@@ -68,7 +70,8 @@ export function speciesStatus(cards: readonly Card[], owned: Owned | undefined, 
 }
 
 /** Ligne de liste d'envies à coller dans Cardmarket (aucun caractère de contrôle). */
-export function wantsLine(c: Pick<Card, "nom_fr" | "set_name" | "numero">): string {
+export function wantsLine(c: Pick<Card, "nom_fr" | "set_name" | "numero" | "code_cm">): string {
+  // même libellé que Cardmarket (« Bulbizarre (MEW 166) ») quand le code est connu
   // eslint-disable-next-line no-control-regex
-  return `1 ${c.nom_fr} (${c.set_name} ${c.numero})`.replace(/[\u0000-\u001f]/g, " ");
+  return `1 ${c.nom_fr} (${c.code_cm ?? `${c.set_name} ${c.numero}`})`.replace(/[\u0000-\u001f]/g, " ");
 }

@@ -9,7 +9,7 @@ interface SpeciesDto {
   status: string;
   higher: string[];
   options: { tier: string; card_id: string }[];
-  cards: { id: string; price: { trend: number } | null }[];
+  cards: { id: string; code_cm: string | null; price: { trend: number } | null }[];
 }
 const pokedex = async () => (await (await call("/api/pokedex")).json<{ species: SpeciesDto[] }>()).species;
 const species = async (n: number) => (await pokedex()).find((s) => s.num === n)!;
@@ -100,6 +100,10 @@ describe("pokédex et cycle de vie d'une espèce", () => {
     expect(all.every((s) => s.status === "manquante")).toBe(true);
     expect((await species(151)).cards).toEqual([]);
   });
+  it("expose le code Cardmarket de chaque carte", async () => {
+    const codes = Object.fromEntries((await species(1)).cards.map((c) => [c.id, c.code_cm]));
+    expect(codes).toEqual({ "xy1-141": "XY 141", "sv03.5-166": "MEW 166", "sv03.5-198": null });
+  });
   it("prix en direct : met à jour cache et options", async () => {
     const live = await (await call("/api/species/1/prices")).json<Record<string, { trend: number }>>();
     expect(live["sv03.5-166"]?.trend).toBe(40);
@@ -150,7 +154,7 @@ describe("liste d'envies, export/import", () => {
     await call("/api/species/1/prices");
     await call("/api/species/2/prices");
     const txt = await (await call("/api/wants?tier=cheapest")).text();
-    expect(txt.split("\n").sort()).toEqual(["1 Bulbizarre (151 166)", "1 Herbizarre (151 167)"]);
+    expect(txt.split("\n").sort()).toEqual(["1 Bulbizarre (MEW 166)", "1 Herbizarre (MEW 167)"]);
     expect((await call("/api/wants?tier=XX")).status).toBe(400);
   });
   it("export puis import (remplacement atomique)", async () => {
