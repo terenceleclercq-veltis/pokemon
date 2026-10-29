@@ -1,0 +1,9 @@
+{
+  "_avertissement": "[à vérifier] Tarifs NON confirmés : grille Cardmarket non lue. À remplacer par les vrais tarifs des vendeurs.",
+  "lettre_simple_eur": 2.5,
+  "envoi_suivi_eur": 6.0,
+  "seuil_envoi_suivi_eur": 25.0,
+  "cartes_par_vendeur_bas": 10,
+  "cartes_par_vendeur_haut": 3,
+  "budget_mensuel_eur": 200.0
+}

@@ -1,0 +1,37 @@
+rarete_ptcg,categorie_fullart,decision,confiance,remarque
+Illustration Rare,IR,inclus,certain,Écarlate/Violet et Méga-Évolution : 1 étoile dorée
+Special Illustration Rare,SIR,inclus,certain,2 étoiles dorées
+Ultra Rare,UR_ex,inclus,certain,Écarlate/Violet et Méga-Évolution : ex en pleine carte (2 étoiles argent)
+Shiny Ultra Rare,SHINY_UR,inclus,certain,Full art chromatique ex (Destinées de Paldea)
+Rare Ultra,FA,inclus,probable,"Ères BW/XY/SM/EB : EX/GX/V/VMAX/VSTAR full art ; peut inclure des Alternate Art (non distinguables dans les données)"
+Trainer Gallery Rare Holo,TG,inclus,certain,Trainer Gallery / Galarian Gallery (numéros TGxx/GGxx)
+Rare Shiny GX,SHINY_GX,inclus,probable,Shiny Vault GX (Destinées Radieuses / Hidden Fates etc.)
+Hyper Rare,HYPER,exclu,certain,Exclu sur décision de Terence (2026-10-29) : dorées sans vraie illustration
+Mega Hyper Rare,HYPER,exclu,certain,Idem Hyper Rare
+Rare Secret,SECRET,ambigu,ambigu,"Mélange : dorées, Alternate Art VMAX, full arts secrets. À trancher carte par carte"
+Rare Rainbow,RAINBOW,ambigu,ambigu,"Arc-en-ciel VMAX/GX : full art à texture, pas de vraie illustration. À trancher"
+MEGA_ATTACK_RARE,MAR,ambigu,ambigu,Méga-Évolution : Mega Attack Rare (illustration pleine carte ?). À trancher
+Promo,PROMO,ambigu,ambigu,Promos V/GX/ex : certaines sont full art. Listées à part
+Rare Holo EX,STANDARD,exclu,certain,EX standard (cadre)
+Rare Holo GX,STANDARD,exclu,certain,GX standard (cadre)
+Rare Holo V,STANDARD,exclu,certain,V standard (cadre)
+Rare Holo VMAX,STANDARD,exclu,certain,VMAX standard (cadre)
+Rare Holo VSTAR,STANDARD,exclu,certain,VSTAR standard (cadre)
+Holo Rare VMAX,STANDARD,exclu,certain,VMAX standard (Célébrations)
+Double Rare,STANDARD,exclu,certain,ex standard Écarlate/Violet
+Radiant Rare,STANDARD,exclu,certain,Radieux : cadre standard
+Shiny Rare,STANDARD,exclu,certain,Chromatique non full art
+Rare Shiny,STANDARD,exclu,certain,Chromatique non full art
+Rare Holo Star,STANDARD,exclu,certain,Étoile dorée (ère EX) non full art
+Rare Prime,STANDARD,exclu,certain,
+Rare BREAK,STANDARD,exclu,certain,
+Rare Prism Star,STANDARD,exclu,certain,
+Rare Holo LV.X,STANDARD,exclu,certain,
+Rare Shining,STANDARD,exclu,certain,
+Classic Collection,STANDARD,exclu,certain,Réimpressions standard
+Pikachu Rare,STANDARD,exclu,certain,
+Futuristic Rare,STANDARD,exclu,certain,
+Rare Holo,STANDARD,exclu,certain,
+Rare,STANDARD,exclu,certain,
+Uncommon,STANDARD,exclu,certain,
+Common,STANDARD,exclu,certain,
