@@ -69,9 +69,18 @@ export function speciesStatus(cards: readonly Card[], owned: Owned | undefined, 
   return keep ? "choisie" : "a_verifier";
 }
 
-/** Ligne de liste d'envies à coller dans Cardmarket (aucun caractère de contrôle). */
-export function wantsLine(c: Pick<Card, "nom_fr" | "set_name" | "numero" | "code_cm">): string {
-  // même libellé que Cardmarket (« Bulbizarre (MEW 166) ») quand le code est connu
+/**
+ * Libellé tel que Cardmarket l'affiche : « Bulbizarre (MEW 166) », « Florizarre ex (MEW 198) ».
+ * Cardmarket écrit « ex » sans tiret là où le nom français officiel en a un (« Florizarre-ex ») ;
+ * « -EX » et « -GX » sont laissés tels quels. Sans code connu : extension et numéro.
+ */
+export function cardmarketLabel(c: Pick<Card, "nom_fr" | "set_name" | "numero" | "code_cm">): string {
+  const nom = c.nom_fr.replace(/-ex(?=\s|$)/g, " ex");
   // eslint-disable-next-line no-control-regex
-  return `1 ${c.nom_fr} (${c.code_cm ?? `${c.set_name} ${c.numero}`})`.replace(/[\u0000-\u001f]/g, " ");
+  return `${nom} (${c.code_cm ?? `${c.set_name} ${c.numero}`})`.replace(/[\u0000-\u001f]/g, " ");
+}
+
+/** Ligne de liste d'envies à coller dans Cardmarket. */
+export function wantsLine(c: Pick<Card, "nom_fr" | "set_name" | "numero" | "code_cm">): string {
+  return `1 ${cardmarketLabel(c)}`;
 }
