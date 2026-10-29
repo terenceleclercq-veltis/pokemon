@@ -32,57 +32,29 @@ body {
   break-after: page;
 }
 .ph {
-  position: relative;
-  overflow: hidden;
   border: 0.2mm dashed #999;
-  padding: 3mm;
+  padding: 4mm;
   display: flex;
   flex-direction: column;
-  gap: 1mm;
+  align-items: center;
 }
 .ph .num {
-  font-size: 9mm;
+  align-self: flex-start;
+  font-size: 7mm;
   font-weight: 700;
   line-height: 1;
   color: #c33;
 }
-.ph .name {
-  font-size: 4.5mm;
-  font-weight: 600;
-}
 .ph img {
-  width: 100%;
-  height: 44mm;
+  width: 52mm;
+  height: 52mm;
+  margin: 3mm 0;
   object-fit: contain;
-  filter: grayscale(1);
-  opacity: 0.45;
 }
-.ph .noimg {
-  height: 44mm;
-  display: grid;
-  place-items: center;
-  color: #aaa;
-  font-size: 3mm;
-}
-.ph .card {
-  font-size: 3mm;
-  line-height: 1.3;
-}
-.ph .code {
-  font:
-    700 3.6mm ui-monospace,
-    monospace;
-}
-.ph .tier {
-  position: absolute;
-  top: 3mm;
-  right: 3mm;
-  padding: 0.5mm 1.5mm;
-  border: 0.3mm solid #c33;
-  border-radius: 1mm;
-  font-size: 3mm;
+.ph .name {
+  font-size: 6mm;
   font-weight: 700;
-  color: #c33;
+  text-align: center;
 }
 @media print {
   body {

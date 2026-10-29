@@ -18,10 +18,9 @@ export const speciesParam = z.object({
 });
 export const ownedBody = z.union([z.strictObject({ card_id: cardId, note }), z.strictObject({ tier, note })]);
 export const keepBody = z.strictObject({ note });
-const wantTier = z._default(z.enum([...TIERS, "cheapest", "sir_ir", "rarest"]), "cheapest");
+const wantTier = z._default(z.enum([...TIERS, "cheapest", "sir_ir"]), "cheapest");
 export const wantsQuery = z.object({ tier: wantTier });
 export const placeholdersQuery = z.object({
-  tier: z._default(z.enum([...TIERS, "cheapest", "sir_ir", "rarest"]), "rarest"),
   scope: z._default(z.enum(["missing", "all"]), "missing"),
 });
 export const buylistQuery = z.object({

@@ -169,5 +169,6 @@ test("placeholders : 9 fiches par feuille A4, sans violation CSP", async ({ page
   await expect(page.locator("#count")).toHaveText("151 fiches · 17 feuilles A4");
   await expect(page.locator(".sheet").first().locator(".ph")).toHaveCount(9);
   await expect(page.locator(".ph").first()).toContainText("#001");
+  await expect(page.locator(".ph img").first()).toHaveAttribute("src", /official-artwork\/1\.png$/);
   expect(errors).toEqual([]);
 });

@@ -195,24 +195,20 @@ describe("liste d'envies, export/import", () => {
     expect(within.total).toBe(20);
     expect((await call("/api/buylist?budget=-1")).status).toBe(400);
   });
-  it("placeholders : une fiche par espèce manquante avec la carte visée", async () => {
-    await call("/api/species/1/prices");
-    type Ph = { items: { num: number; card: { nom_fr: string; code: string | null; tier: string } | null }[] };
-    const miss = await (await call("/api/placeholders?tier=sir_ir")).json<Ph>();
-    expect(miss.items.map((i) => [i.num, i.card?.tier ?? null, i.card?.code ?? null])).toEqual([
-      [1, "SIR", "MEW 198"],
-      [2, "IR", "MEW 167"],
-      [151, null, null],
+  it("placeholders : une fiche par espèce manquante, ou les 151", async () => {
+    type Ph = { items: { num: number; nom_fr: string }[] };
+    const miss = await (await call("/api/placeholders")).json<Ph>();
+    expect(miss.items).toEqual([
+      { num: 1, nom_fr: "Bulbizarre" },
+      { num: 2, nom_fr: "Herbizarre" },
+      { num: 151, nom_fr: "Mew" },
     ]);
     await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } });
-    const after = await (await call("/api/placeholders?tier=sir_ir")).json<Ph>();
-    expect(after.items.map((i) => i.num)).toEqual([2, 151]);
-    const all = await (await call("/api/placeholders?tier=sir_ir&scope=all")).json<Ph>();
-    expect(all.items.map((i) => i.num)).toEqual([1, 2, 151]);
-    const rare = await (await call("/api/placeholders?scope=all")).json<Ph>();
-    expect(rare.items.map((i) => i.card?.tier ?? null)).toEqual(["SIR", "IR", null]);
+    expect((await (await call("/api/placeholders")).json<Ph>()).items.map((i) => i.num)).toEqual([2, 151]);
+    expect((await (await call("/api/placeholders?scope=all")).json<Ph>()).items.map((i) => i.num)).toEqual([1, 2, 151]);
     expect((await call("/api/placeholders?scope=XX")).status).toBe(400);
   });
+
   it("export puis import (remplacement atomique)", async () => {
     await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } });
     await call("/api/species/1/keep", { method: "PUT", json: { note: "j'aime l'illustration" } });
