@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardmarketBody, importBody, ownedBody, speciesParam, tcgdexCard } from "../../src/worker/schemas";
+import { importBody, ownedBody, speciesParam, tcgdexCard } from "../../src/worker/schemas";
 
 describe("validation des entrées", () => {
   it.each(["0", "152", "-1", "1.5", "abc", "1e2"])("refuse l'espèce %s", (num) =>
@@ -20,12 +20,6 @@ describe("validation des entrées", () => {
   it("import : borné à 151 lignes", () => {
     const owned = Array.from({ length: 152 }, (_, i) => ({ species_num: (i % 151) + 1, card_id: null, tier: "FA" }));
     expect(importBody.safeParse({ version: 1, owned, keep: [] }).success).toBe(false);
-  });
-  it("identifiants Cardmarket : ASCII imprimable, champs attendus uniquement", () => {
-    const ok = { appToken: "abcdef", appSecret: "abcdef", accessToken: "abcdef", accessSecret: "abcdef" };
-    expect(cardmarketBody.safeParse(ok).success).toBe(true);
-    expect(cardmarketBody.safeParse({ ...ok, appToken: "ab cd ef" }).success).toBe(false);
-    expect(cardmarketBody.safeParse({ ...ok, extra: "x" }).success).toBe(false);
   });
   it("réponse TCGdex : image hors domaine attendu refusée", () => {
     expect(tcgdexCard.safeParse({ image: "https://evil.example/x" }).success).toBe(false);

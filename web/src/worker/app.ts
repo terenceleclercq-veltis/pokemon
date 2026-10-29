@@ -4,13 +4,12 @@ import { HTTPException } from "hono/http-exception";
 import { secureHeaders } from "hono/secure-headers";
 import type * as z from "zod/mini";
 import { devBypass, verifyAccessJwt } from "./auth";
-import { cardmarketGet } from "./cardmarket";
-import { decryptJson, encryptJson } from "./crypto";
 import { audit, cardTier, cardsOf, loadAll } from "./db";
 import {
   cheapestPerTier,
   higherThan,
   speciesStatus,
+  targetCard,
   TIER_LABEL,
   TIERS,
   wantsLine,
@@ -20,21 +19,10 @@ import {
   type Price,
 } from "./logic";
 import { refreshPrices } from "./prices";
-import {
-  cardmarketBody,
-  importBody,
-  keepBody,
-  ownedBody,
-  speciesParam,
-  wantsQuery,
-  buylistQuery,
-  placeholdersQuery,
-  type CardmarketCreds,
-} from "./schemas";
+import { importBody, keepBody, ownedBody, speciesParam, wantsQuery, buylistQuery, placeholdersQuery } from "./schemas";
 
 type AppEnv = { Bindings: Env; Variables: { user: string } };
 type Ctx = Context<AppEnv>;
-const CM_KEY = "cardmarket";
 
 export const CSP = {
   defaultSrc: ["'none'"],
@@ -119,10 +107,14 @@ async function pokedex(db: D1Database) {
     const cards = bySpecies.get(s.num) ?? [];
     const o = owned.get(s.num);
     const best = cheapestPerTier(cards, price);
+    const status = speciesStatus(cards, o, keep.get(s.num));
     return {
       num: s.num,
       nom_fr: s.nom_fr,
-      status: speciesStatus(cards, o, keep.get(s.num)),
+      nom_en: s.nom_en,
+      status,
+      /** Carte à acheter pour atteindre l'objectif (rareté la plus haute), null si l'espèce est terminée. */
+      target: targetCard(cards, status, price)?.id ?? null,
       owned: o ?? null,
       keep: keep.get(s.num) ?? null,
       higher: o ? higherThan(cards, o).map((c) => c.id) : [],
@@ -240,12 +232,17 @@ app.delete("/api/species/:num/keep", async (c) => {
 });
 
 type Species = Awaited<ReturnType<typeof pokedex>>[number];
-type WantTier = (typeof TIERS)[number] | "cheapest" | "sir_ir";
+type WantTier = (typeof TIERS)[number] | "cheapest" | "sir_ir" | "objectif";
 const byTrend = (a: { price: Price | null }, b: { price: Price | null }) =>
   (a.price?.trend ?? Infinity) - (b.price?.trend ?? Infinity);
 
-/** Carte(s) visée(s) pour une espèce manquante : la moins chère, une rareté, ou « SIR, sinon IR ». */
+/** Espèces concernées : manquantes, plus celles à améliorer quand on suit l'objectif. */
+const toBuy = (s: Species, tier: WantTier) =>
+  s.status === "manquante" || (tier === "objectif" && s.status === "a_verifier");
+
+/** Carte(s) visée(s) : l'objectif (rareté la plus haute), la moins chère, une rareté, ou « SIR, sinon IR ». */
 function wanted(s: Species, tier: WantTier): Species["cards"] {
+  if (tier === "objectif") return s.cards.filter((x) => x.id === s.target);
   const opts = s.cards.filter((x) => s.options.some((o) => o.card_id === x.id));
   if (tier === "cheapest") return opts.sort(byTrend).slice(0, 1);
   if (tier === "sir_ir") {
@@ -257,9 +254,7 @@ function wanted(s: Species, tier: WantTier): Species["cards"] {
 
 app.get("/api/wants", async (c) => {
   const { tier } = parse(wantsQuery, c.req.query());
-  const lines = (await pokedex(c.env.DB))
-    .filter((s) => s.status === "manquante")
-    .flatMap((s) => wanted(s, tier).map(wantsLine));
+  const lines = (await pokedex(c.env.DB)).filter((s) => toBuy(s, tier)).flatMap((s) => wanted(s, tier).map(wantsLine));
   return c.text(lines.join("\n"));
 });
 
@@ -267,8 +262,8 @@ app.get("/api/wants", async (c) => {
 app.get("/api/buylist", async (c) => {
   const { tier, budget } = parse(buylistQuery, c.req.query());
   const all = (await pokedex(c.env.DB))
-    .filter((s) => s.status === "manquante")
-    .flatMap((s) => wanted(s, tier).map((x) => ({ ...x, espece: s.nom_fr })))
+    .filter((s) => toBuy(s, tier))
+    .flatMap((s) => wanted(s, tier).map((x) => ({ ...x, espece: s.nom_fr, upgrade: s.status === "a_verifier" })))
     .sort(byTrend);
   let total = 0;
   const items = [];
@@ -283,6 +278,11 @@ app.get("/api/buylist", async (c) => {
       label: x.cm_label,
       url: x.cm_url,
       langue: x.langue,
+      tier: x.tier,
+      categorie: x.categorie,
+      image: x.image ?? null,
+      /** Remplace une carte déjà possédée d'une rareté inférieure. */
+      upgrade: x.upgrade,
       trend: p ?? null,
     });
   }
@@ -349,44 +349,6 @@ app.post("/api/import", async (c) => {
     audit(c.env.DB, c.get("user"), "import", `${b.owned.length} possédées, ${b.keep.length} conservées`),
   ]);
   return c.json({ ok: true, owned: b.owned.length, keep: b.keep.length });
-});
-
-app.get("/api/cardmarket", async (c) => {
-  const r = await c.env.DB.prepare("SELECT updated_at FROM settings WHERE key = ?")
-    .bind(CM_KEY)
-    .first<{ updated_at: string }>();
-  return c.json({ linked: !!r, updated_at: r?.updated_at ?? null }); // jamais les valeurs
-});
-
-app.put("/api/cardmarket", async (c) => {
-  const creds = parse(cardmarketBody, await jsonBody(c));
-  if (!c.env.ENC_KEY) throw fail(500, "chiffrement non configuré");
-  const blob = await encryptJson(c.env.ENC_KEY, creds, `settings:${CM_KEY}`);
-  await c.env.DB.batch([
-    c.env.DB.prepare(
-      `INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)
-       ON CONFLICT(key) DO UPDATE SET value = ?2, updated_at = ?3`,
-    ).bind(CM_KEY, blob, new Date().toISOString()),
-    audit(c.env.DB, c.get("user"), "cardmarket.link"),
-  ]);
-  return c.json({ ok: true });
-});
-
-app.delete("/api/cardmarket", async (c) => {
-  await c.env.DB.batch([
-    c.env.DB.prepare("DELETE FROM settings WHERE key = ?").bind(CM_KEY),
-    audit(c.env.DB, c.get("user"), "cardmarket.unlink"),
-  ]);
-  return c.json({ ok: true });
-});
-
-app.post("/api/cardmarket/test", async (c) => {
-  const r = await c.env.DB.prepare("SELECT value FROM settings WHERE key = ?").bind(CM_KEY).first<{ value: string }>();
-  if (!r) throw fail(404, "compte non lié");
-  const creds = await decryptJson<CardmarketCreds>(c.env.ENC_KEY, r.value, `settings:${CM_KEY}`);
-  const res = await cardmarketGet(creds, "/ws/v2.0/output.json/account");
-  const username = (res.body as { account?: { username?: unknown } } | null)?.account?.username;
-  return c.json({ status: res.status, username: typeof username === "string" ? username : null });
 });
 
 app.all("/api/*", () => {

@@ -65,6 +65,18 @@ export function toast(msg: string, kind: "ok" | "err" = "ok"): void {
   }, 5000);
 }
 
+/** Action utilisateur : désactive le bouton pendant l'appel, toute erreur devient un message (aucun rejet non géré). */
+export function action(btn: HTMLButtonElement | null, fn: () => Promise<void>): void {
+  if (btn) btn.disabled = true;
+  fn()
+    .catch((e: unknown) => {
+      toast(e instanceof Error ? e.message : "Erreur", "err");
+    })
+    .finally(() => {
+      if (btn) btn.disabled = false;
+    });
+}
+
 export function debounce<A extends unknown[]>(fn: (...a: A) => void, ms: number) {
   let t: ReturnType<typeof setTimeout> | undefined;
   return (...a: A) => {

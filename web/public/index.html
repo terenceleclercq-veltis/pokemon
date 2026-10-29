@@ -14,7 +14,7 @@
   </head>
   <body>
     <a class="skip" href="#grid">Aller à la grille</a>
-    <header>
+    <header class="top">
       <h1>Pokédex Kanto <small>full art</small></h1>
       <p id="progress" aria-live="polite">Chargement…</p>
       <div
@@ -28,111 +28,163 @@
       >
         <div id="bar-fill"></div>
       </div>
-      <div class="tools">
-        <label class="sr" for="q">Rechercher</label>
-        <input id="q" type="search" placeholder="Nom ou n°" autocomplete="off" />
-        <label class="sr" for="filter">Filtrer</label>
-        <select id="filter">
-          <option value="all">Tout</option>
-          <option value="manquante">Manquantes</option>
-          <option value="a_verifier">Version plus rare dispo</option>
-          <option value="complete">Complètes</option>
-          <option value="choisie">Choix conservé</option>
-          <option value="none">Sans full art FR</option>
-        </select>
-        <button id="btn-buy" type="button">Liste d'achat</button>
-        <button id="btn-settings" type="button">Réglages</button>
-      </div>
     </header>
+    <div class="tools" role="search">
+      <label class="sr" for="q">Rechercher</label>
+      <input id="q" type="search" placeholder="Nom (FR ou EN), n°, code « MEW 166 »…" autocomplete="off" />
+      <label class="sr" for="filter">Filtrer</label>
+      <select id="filter">
+        <option value="all">Tout</option>
+        <option value="manquante">À acheter</option>
+        <option value="a_verifier">À améliorer (SIR dispo)</option>
+        <option value="complete">Complètes</option>
+        <option value="choisie">Choix conservé</option>
+        <option value="none">Sans carte</option>
+      </select>
+      <label class="sr" for="sort">Trier</label>
+      <select id="sort">
+        <option value="num">Ordre du Pokédex</option>
+        <option value="asc">Prix croissant</option>
+        <option value="desc">Prix décroissant</option>
+      </select>
+      <!-- icônes : Feather (MIT) -->
+      <button id="btn-buy" type="button">
+        <svg
+          viewBox="0 0 24 24"
+          width="20"
+          height="20"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="9" cy="21" r="1" />
+          <circle cx="20" cy="21" r="1" />
+          <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+        </svg>
+        <span class="lbl">Liste d'achat</span>
+      </button>
+      <button id="btn-settings" type="button">
+        <svg
+          viewBox="0 0 24 24"
+          width="20"
+          height="20"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="3" />
+          <path
+            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+          />
+        </svg>
+        <span class="lbl">Réglages</span>
+      </button>
+    </div>
+    <nav id="quick" class="quick" aria-label="Vues rapides">
+      <button type="button" data-view="manquante:asc">La moins chère à acheter</button>
+      <button type="button" data-view="manquante:desc">La plus chère à acheter</button>
+      <button type="button" data-view="a_verifier:asc">À améliorer</button>
+      <button type="button" data-view="none:num">Sans carte</button>
+      <button type="button" data-view="all:num">Tout le Pokédex</button>
+    </nav>
     <main>
       <div id="grid" role="list" aria-label="Espèces"></div>
       <p id="empty" hidden>Aucune espèce ne correspond.</p>
     </main>
 
-    <dialog id="detail" aria-labelledby="detail-title">
+    <dialog id="detail" class="sheet" aria-labelledby="detail-title">
+      <div class="sheet-head">
+        <button id="d-prev" class="icon" type="button" aria-label="Espèce précédente">‹</button>
+        <h2 id="detail-title"></h2>
+        <button id="d-next" class="icon" type="button" aria-label="Espèce suivante">›</button>
+        <button class="icon" type="button" data-close aria-label="Fermer">×</button>
+      </div>
       <div id="detail-body"></div>
-      <button class="close" type="button" data-close>Fermer</button>
     </dialog>
 
-    <dialog id="buy" aria-labelledby="buy-title">
-      <h2 id="buy-title">Liste d'achat</h2>
-      <p>
-        Cartes manquantes de la moins chère à la plus chère, avec un lien vers la version exacte sur Cardmarket. Prix
-        tendance, hors frais de port. Une fois commandée, « Achetée » l'ajoute au binder et la déduit du budget.
-      </p>
-      <label
-        >Cartes
-        <select id="buy-tier">
-          <option value="sir_ir">SIR, sinon IR</option>
-          <option value="cheapest">La moins chère</option>
-          <option value="FA">Full art</option>
-          <option value="IR">IR</option>
-          <option value="SIR">SIR</option>
-        </select>
-      </label>
-      <label
-        >Budget restant (€, facultatif) <input id="buy-budget" type="number" min="1" max="100000" step="0.01"
-      /></label>
-      <button id="btn-buylist" type="button">Afficher</button>
-      <div id="buylist" aria-live="polite"></div>
-      <button class="close" type="button" data-close>Fermer</button>
+    <dialog id="viewer" class="viewer" aria-label="Visionneuse">
+      <button class="icon vclose" type="button" data-close aria-label="Fermer la visionneuse">×</button>
+      <button id="v-prev" class="icon vnav" type="button" aria-label="Version précédente">‹</button>
+      <figure id="v-fig" class="holo">
+        <img id="v-img" alt="" draggable="false" />
+        <span class="shine" aria-hidden="true"></span>
+      </figure>
+      <button id="v-next" class="icon vnav" type="button" aria-label="Version suivante">›</button>
+      <p id="v-cap" class="vcap"></p>
     </dialog>
 
-    <dialog id="settings" aria-labelledby="settings-title">
-      <h2 id="settings-title">Réglages</h2>
-      <section>
-        <h3>Liste d'envies Cardmarket</h3>
-        <p>
-          Copie les espèces manquantes, à coller dans Cardmarket → Wants → « Ajouter une Deck List ». Ensuite, régler
-          langue et état minimum, et vérifier l'extension de chaque souhait : l'import ne distingue pas les versions.
+    <dialog id="buy" class="sheet" aria-labelledby="buy-title">
+      <div class="sheet-head">
+        <h2 id="buy-title">Liste d'achat</h2>
+        <button class="icon" type="button" data-close aria-label="Fermer">×</button>
+      </div>
+      <div class="sheet-body">
+        <p class="mut">
+          Cartes visées, de la moins chère à la plus chère, avec un lien vers la version exacte sur Cardmarket (prix
+          tendance, hors port). « Achetée » l'ajoute au binder et la déduit du budget.
         </p>
-        <label class="sr" for="wants-tier">Rareté</label>
-        <select id="wants-tier">
-          <option value="cheapest">La moins chère</option>
-          <option value="sir_ir">SIR, sinon IR</option>
-          <option value="FA">Full art</option>
-          <option value="IR">IR</option>
-          <option value="SIR">SIR</option>
-        </select>
-        <button id="btn-wants" type="button">Copier</button>
-      </section>
-      <section>
-        <h3>Placeholders de binder</h3>
-        <p>
-          Fiches à imprimer (format carte, illustration du Pokémon, 9 par feuille A4) pour réserver la place des cartes
-          à acheter.
-        </p>
-        <a href="/placeholders.html" target="_blank" rel="noopener">Ouvrir la page d'impression ↗</a>
-      </section>
-      <section>
-        <h3>Sauvegarde</h3>
-        <button id="btn-export" type="button">Exporter (JSON)</button>
-        <label class="file"
-          >Importer (remplace tout)<input id="file-import" type="file" accept="application/json"
-        /></label>
-      </section>
-      <section>
-        <h3>Compte Cardmarket</h3>
-        <p id="cm-state">…</p>
-        <p class="warn">
-          Lecture seule, jamais de commande. Les clés sont chiffrées côté serveur et ne sont jamais réaffichées. L'accès
-          à l'API Cardmarket est restreint : liaison non testée.
-        </p>
-        <form id="cm-form" autocomplete="off">
-          <label>App token <input name="appToken" required minlength="6" maxlength="200" spellcheck="false" /></label>
-          <label>App secret <input name="appSecret" type="password" required minlength="6" maxlength="200" /></label>
+        <div class="row">
           <label
-            >Access token <input name="accessToken" required minlength="6" maxlength="200" spellcheck="false"
+            >Cartes
+            <select id="buy-tier">
+              <option value="objectif">Objectif : SIR si elle existe</option>
+              <option value="cheapest">La moins chère</option>
+              <option value="SIR">SIR uniquement</option>
+              <option value="IR">IR uniquement</option>
+              <option value="FA">Full art uniquement</option>
+            </select>
+          </label>
+          <label>Budget (€) <input id="buy-budget" type="number" min="1" max="100000" step="0.01" /></label>
+          <button id="btn-csv" type="button">Exporter (CSV)</button>
+        </div>
+        <div id="buylist" aria-live="polite"></div>
+      </div>
+    </dialog>
+
+    <dialog id="settings" class="sheet" aria-labelledby="settings-title">
+      <div class="sheet-head">
+        <h2 id="settings-title">Réglages</h2>
+        <button class="icon" type="button" data-close aria-label="Fermer">×</button>
+      </div>
+      <div class="sheet-body">
+        <section>
+          <h3>Liste d'envies Cardmarket</h3>
+          <p>
+            Copie les cartes visées, à coller dans Cardmarket → Wants → « Ajouter une Deck List ». Ensuite, régler
+            langue et état minimum, et vérifier l'extension de chaque souhait : l'import ne distingue pas les versions.
+          </p>
+          <label class="sr" for="wants-tier">Rareté</label>
+          <select id="wants-tier">
+            <option value="objectif">Objectif : SIR si elle existe</option>
+            <option value="cheapest">La moins chère</option>
+            <option value="SIR">SIR</option>
+            <option value="IR">IR</option>
+            <option value="FA">Full art</option>
+          </select>
+          <button id="btn-wants" type="button">Copier</button>
+        </section>
+        <section>
+          <h3>Placeholders de binder</h3>
+          <p>
+            Fiches à imprimer (format carte, illustration du Pokémon, 9 par feuille A4) pour réserver la place des
+            cartes à acheter.
+          </p>
+          <a href="/placeholders.html" target="_blank" rel="noopener">Ouvrir la page d'impression ↗</a>
+        </section>
+        <section>
+          <h3>Sauvegarde</h3>
+          <button id="btn-export" type="button">Exporter (JSON)</button>
+          <label class="file"
+            >Importer (remplace tout)<input id="file-import" type="file" accept="application/json"
           /></label>
-          <label
-            >Access token secret <input name="accessSecret" type="password" required minlength="6" maxlength="200"
-          /></label>
-          <button type="submit">Lier</button>
-          <button type="button" id="cm-test">Tester</button>
-          <button type="button" id="cm-unlink" class="danger">Délier</button>
-        </form>
-      </section>
-      <button class="close" type="button" data-close>Fermer</button>
+        </section>
+      </div>
     </dialog>
     <div id="toasts" aria-live="polite"></div>
   </body>

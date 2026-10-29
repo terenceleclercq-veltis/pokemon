@@ -52,8 +52,7 @@ dans une livraison suivante. Jamais de `DROP` ou de renommage dans la même livr
    « Service Auth » = service token **ci-smoke** (le Worker ne lui ouvre que `GET /api/health`). `ACCESS_TEAM`,
    `ACCESS_AUD` et `CI_SERVICE_TOKEN_ID` dans `wrangler.jsonc`. Le service token expire au bout d'un an : relancer
    l'étape 3 de `scripts/migrer-compte-pokemon.sh` pour le renouveler, puis mettre à jour `CI_SERVICE_TOKEN_ID`.
-4. `openssl rand -base64 32 | npx wrangler secret put ENC_KEY --env staging` (puis `--env production`, clé différente).
-   Ne jamais la régénérer une fois des identifiants Cardmarket enregistrés : ils deviendraient illisibles.
+4. Aucun secret applicatif : l'ancien `ENC_KEY` (liaison API Cardmarket, retirée) n'est plus lu.
 5. Jeton API CI limité au compte pokemon : *Workers Scripts: Edit*, *D1: Edit*, *Account Settings: Read*.
 
 **Promos au style IR** : pour les espèces sans IR ni SIR en français, des promos Black Star au style « Illustration

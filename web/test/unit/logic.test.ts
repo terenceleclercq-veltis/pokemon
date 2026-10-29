@@ -3,7 +3,9 @@ import {
   cardmarketLabel,
   cheapestPerTier,
   higherThan,
+  objectiveTier,
   speciesStatus,
+  targetCard,
   wantsLine,
   type Card,
   type Owned,
@@ -45,6 +47,22 @@ describe("speciesStatus", () => {
     expect(speciesStatus([card("fa", "FA")], owned("FA", "fa"), undefined)).toBe("complete"));
   it("un keep obsolète n'empêche pas « complète »", () =>
     expect(speciesStatus(cards, owned("SIR", null), keep)).toBe("complete"));
+});
+
+describe("objectif", () => {
+  it("vise la rareté la plus haute disponible", () => {
+    expect(objectiveTier(cards)).toBe("SIR");
+    expect(objectiveTier([card("fa", "FA"), card("ir", "IR")])).toBe("IR");
+    expect(objectiveTier([])).toBeNull();
+  });
+  const prices = { sir: { trend: 50, low: null, avg7: null } };
+  it("carte visée : la moins chère de cette rareté, tant que l'espèce n'est pas terminée", () => {
+    expect(targetCard(cards, "manquante", prices)?.id).toBe("sir");
+    expect(targetCard(cards, "a_verifier", prices)?.id).toBe("sir");
+    expect(targetCard(cards, "complete", prices)).toBeNull();
+    expect(targetCard(cards, "choisie", prices)).toBeNull();
+    expect(targetCard([], "manquante", prices)).toBeNull();
+  });
 });
 
 describe("higherThan", () => {

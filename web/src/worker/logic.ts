@@ -57,6 +57,27 @@ export function cheapestPerTier(cards: readonly Card[], prices: Readonly<Record<
   return out;
 }
 
+/** Rareté visée : la plus haute du catalogue de l'espèce (« je viserai toujours la SIR s'il y en a une »). */
+export function objectiveTier(cards: readonly Card[]): Tier | null {
+  let best: Tier | null = null;
+  for (const c of cards) if (!best || TIER_RANK[c.tier] > TIER_RANK[best]) best = c.tier;
+  return best;
+}
+
+/**
+ * Carte visée : la moins chère de la rareté visée, tant que l'espèce n'est pas terminée
+ * (manquante, ou possédée dans une rareté inférieure sans « je préfère la mienne »).
+ */
+export function targetCard(
+  cards: readonly Card[],
+  status: Status,
+  prices: Readonly<Record<string, Price>>,
+): Card | null {
+  if (status !== "manquante" && status !== "a_verifier") return null;
+  const tier = objectiveTier(cards);
+  return tier ? (cheapestPerTier(cards, prices)[tier] ?? null) : null;
+}
+
 /** Cartes strictement plus rares que celle possédée. */
 export function higherThan(cards: readonly Card[], owned: Owned): Card[] {
   const rank = TIER_RANK[owned.tier];

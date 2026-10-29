@@ -1,8 +1,14 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
-/** Prix simulés : pas de dépendance réseau à TCGdex pendant les tests navigateur. */
-async function mockPrices(page: Page) {
+/** Prix et images simulés : aucune dépendance réseau (TCGdex, GitHub) pendant les tests navigateur. */
+async function mockOutbound(page: Page) {
+  await page.route(/^https:\/\/(raw\.githubusercontent\.com|assets\.tcgdex\.net)\//, (route) =>
+    route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="5" height="7"><rect width="5" height="7" fill="#c33"/></svg>',
+    }),
+  );
   await page.route("**/api/species/*/prices", async (route) => {
     const num = Number(/species\/(\d+)\//.exec(route.request().url())?.[1]);
     const r = await page.request.get(`/api/pokedex`);
@@ -10,7 +16,10 @@ async function mockPrices(page: Page) {
       (x) => x.num === num,
     );
     const body = Object.fromEntries(
-      (s?.cards ?? []).map((c, i) => [c.id, { trend: 10 + i * 5, low: 5 + i, avg7: 10, image: null }]),
+      (s?.cards ?? []).map((c, i) => [
+        c.id,
+        { trend: 10 + i * 5, low: 5 + i, avg7: 10, image: `https://assets.tcgdex.net/test/${c.id}/low.webp` },
+      ]),
     );
     await route.fulfill({ json: body });
   });
@@ -23,54 +32,77 @@ test.beforeEach(async ({ page }) => {
     if (m.type() === "error") consoleErrors.push(m.text());
   });
   page.on("pageerror", (e) => consoleErrors.push(e.message));
-  await mockPrices(page);
+  await mockOutbound(page);
 });
 test.afterEach(async ({ page }) => {
-  // une requête de prix simulée encore en vol à la fin du test ne doit pas le faire échouer
+  // une requête simulée encore en vol à la fin du test ne doit pas le faire échouer
   await page.unrouteAll({ behavior: "ignoreErrors" });
   // inclut les violations CSP / Trusted Types, qui sont journalisées comme erreurs
   expect(consoleErrors).toEqual([]);
 });
 
-test("affiche les 151 espèces et la progression", async ({ page }) => {
+test("affiche les 151 espèces illustrées et la progression", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".tile")).toHaveCount(151);
   await expect(page.locator("#progress")).toContainText("/151 complètes");
   await expect(page.locator(".tile").first()).toContainText("Bulbizarre");
+  // chaque tuile a une image : une carte, ou l'illustration du Pokémon
+  await expect(page.locator(".tile .pic img")).toHaveCount(151);
+  await expect(page.locator(".tile.none .pic.art img").first()).toHaveAttribute("src", /dream-world\/\d+\.svg$/);
 });
 
-test("recherche, filtre et état dans l'URL", async ({ page }) => {
+test("recherche tolérante, filtre et état dans l'URL", async ({ page }) => {
   await page.goto("/");
-  await page.getByLabel("Rechercher").fill("dracau");
+  const search = page.getByLabel("Rechercher");
+  await search.fill("dracau");
   await expect(page.locator(".tile")).toHaveCount(1);
   await expect(page).toHaveURL(/#q=dracau/);
-  await page.getByLabel("Rechercher").fill("#025");
+  await search.fill("#025");
   await expect(page.locator(".tile")).toHaveText(/Pikachu/);
-  await page.getByLabel("Rechercher").fill("");
+  // sans accent, ou par le nom anglais
+  await search.fill("salameche");
+  await expect(page.locator(".tile")).toHaveText(/Salamèche/);
+  await search.fill("charmander");
+  await expect(page.locator(".tile")).toHaveText(/Salamèche/);
+  // par code Cardmarket
+  await search.fill("MEW 166");
+  await expect(page.locator(".tile")).toHaveText(/Bulbizarre/);
+  await search.fill("");
   await page.getByLabel("Filtrer").selectOption("none");
-  await expect(page.locator(".tile").first()).toContainText("Aucune full art FR");
+  await expect(page.locator(".tile").first()).toContainText("Aucune carte");
   await page.reload();
   await expect(page.getByLabel("Filtrer")).toHaveValue("none");
+});
+
+test("vues rapides : la moins chère et la plus chère à acheter", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "La moins chère à acheter" }).click();
+  await expect(page.getByLabel("Filtrer")).toHaveValue("manquante");
+  await expect(page.getByLabel("Trier")).toHaveValue("asc");
+  await expect(page).toHaveURL(/f=manquante&s=asc/);
+  await page.getByRole("button", { name: "La plus chère à acheter" }).click();
+  await expect(page.getByLabel("Trier")).toHaveValue("desc");
+  await expect(page.locator(".tile.none")).toHaveCount(0);
 });
 
 test("parcours complet : je l'ai, version plus rare, je préfère la mienne", async ({ page }) => {
   await page.goto("/#q=Carapuce");
   const tile = page.locator(".tile", { hasText: "Carapuce" });
   await tile.click();
-  const dlg = page.getByRole("dialog");
+  const dlg = page.locator("#detail");
   await expect(dlg.getByRole("heading", { name: /Carapuce/ })).toBeVisible();
   await expect(dlg.locator(".price").first()).toContainText("€");
-  // possède une Full art alors qu'une IR existe -> à vérifier
-  const fa = dlg.locator("h3", { hasText: "Full art" });
+  // possède une Full art alors qu'une IR existe -> à améliorer
+  const fa = dlg.locator("h3:has-text('Full art') + ul .opt");
   if ((await fa.count()) > 0) {
-    await dlg.locator(".opt").first().getByRole("button", { name: "Je l'ai" }).click();
+    await fa.first().getByRole("button", { name: "Je l'ai" }).click();
   } else {
     await dlg.getByText("Ma carte n'est pas dans la liste").click();
     await dlg.getByRole("button", { name: "J'ai une Full art" }).click();
   }
   await expect(dlg.getByText(/version\(s\) plus rare/)).toBeVisible();
   await dlg.getByRole("button", { name: /Je préfère la mienne/ }).click();
-  await expect(dlg.getByText(/Choix conservé/)).toBeVisible();
+  await expect(dlg.getByText(/Choix conservé/).first()).toBeVisible();
   await dlg.getByRole("button", { name: "Fermer" }).click();
   await expect(tile).toHaveClass(/choisie/);
   // nettoyage
@@ -80,14 +112,49 @@ test("parcours complet : je l'ai, version plus rare, je préfère la mienne", as
   await expect(tile).toHaveClass(/manquante/);
 });
 
+test("fiche : adresse partageable, flèches, retour arrière", async ({ page, isMobile }) => {
+  test.skip(isMobile, "flèches clavier testées sur desktop");
+  await page.goto("/");
+  await page.locator(".tile").first().click();
+  const dlg = page.locator("#detail");
+  await expect(dlg.getByRole("heading", { name: "#001 Bulbizarre" })).toBeVisible();
+  await expect(page).toHaveURL(/p=1$/);
+  await page.keyboard.press("ArrowRight");
+  await expect(dlg.getByRole("heading", { name: "#002 Herbizarre" })).toBeVisible();
+  await expect(page).toHaveURL(/p=2$/);
+  await page.goBack();
+  await expect(dlg).toBeHidden();
+  // lien direct vers une fiche
+  await page.goto("/#p=25");
+  await expect(dlg.getByRole("heading", { name: "#025 Pikachu" })).toBeVisible();
+  await expect(dlg.locator(".price").first()).toContainText("€");
+});
+
+test("visionneuse : grande image, versions suivantes, fermeture", async ({ page }) => {
+  await page.goto("/#q=Bulbizarre");
+  await page.locator(".tile").first().click();
+  const dlg = page.locator("#detail");
+  await expect(dlg.locator(".price").first()).toContainText("€");
+  await dlg.locator(".thumb").first().click();
+  const viewer = page.locator("#viewer");
+  await expect(viewer).toBeVisible();
+  await expect(viewer.locator("#v-img")).toHaveAttribute("src", /assets\.tcgdex\.net\/test\/.+\.webp$/);
+  const first = await viewer.locator("#v-cap").textContent();
+  await viewer.getByRole("button", { name: "Version suivante" }).click();
+  await expect(viewer.locator("#v-cap")).not.toHaveText(first ?? "");
+  await viewer.getByRole("button", { name: "Fermer la visionneuse" }).click();
+  await expect(viewer).toBeHidden();
+  await expect(dlg).toBeVisible();
+});
+
 test("navigation clavier : Tab, Entrée, Échap", async ({ page, isMobile }) => {
   test.skip(isMobile, "pas de clavier sur mobile");
   await page.goto("/#q=Bulbizarre");
   await page.locator(".tile").first().focus();
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page.locator("#detail")).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(page.locator("#detail")).toBeHidden();
 });
 
 test("code Cardmarket affiché et copié pour la recherche", async ({ page, context, isMobile }) => {
@@ -95,10 +162,11 @@ test("code Cardmarket affiché et copié pour la recherche", async ({ page, cont
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.goto("/#q=Bulbizarre");
   await page.locator(".tile").first().click();
-  await page.getByRole("dialog").getByRole("button", { name: "Copier « Bulbizarre (MEW 166) »" }).click();
+  const dlg = page.locator("#detail");
+  await dlg.getByRole("button", { name: "Copier « Bulbizarre (MEW 166) »" }).click();
   await expect(page.locator(".toast")).toContainText("Copié : Bulbizarre (MEW 166)");
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("Bulbizarre (MEW 166)");
-  const link = page.getByRole("dialog").getByRole("link", { name: "Bulbizarre (MEW 166) sur Cardmarket" });
+  const link = dlg.getByRole("link", { name: "Bulbizarre (MEW 166) sur Cardmarket" });
   await expect(link).toHaveAttribute("href", "https://www.cardmarket.com/fr/Pokemon/Products?idProduct=733761");
   await expect(link).toHaveAttribute("rel", "noopener noreferrer");
 });
@@ -106,7 +174,7 @@ test("code Cardmarket affiché et copié pour la recherche", async ({ page, cont
 test("carte japonaise : seulement sans IR/SIR française, signalée comme telle", async ({ page }) => {
   await page.goto("/#q=Paras");
   await page.locator(".tile", { hasText: "Paras" }).first().click();
-  const dlg = page.getByRole("dialog");
+  const dlg = page.locator("#detail");
   await expect(dlg.locator(".price").first()).toContainText("€");
   const opt = dlg.locator(".opt", { hasText: "s12a 207" });
   await expect(opt.locator(".lang")).toHaveText("Japonaise");
@@ -127,7 +195,7 @@ test("carte japonaise : seulement sans IR/SIR française, signalée comme telle"
 test("cartes de repli : forme admise en IR", async ({ page }) => {
   await page.goto("/#q=Caninos");
   await page.locator(".tile", { hasText: "Caninos" }).click();
-  const dlg = page.getByRole("dialog");
+  const dlg = page.locator("#detail");
   await expect(dlg.locator(".opt", { hasText: "Caninos de Hisui" })).toBeVisible();
   await expect(dlg.locator("h3", { hasText: "Illustration Rare" })).toBeVisible();
   await expect(dlg.locator(".price").first()).toContainText("€");
@@ -136,17 +204,20 @@ test("cartes de repli : forme admise en IR", async ({ page }) => {
 test("cartes de repli : chromatique signalée, faute d'autre carte", async ({ page }) => {
   await page.goto("/#q=%23063");
   await expect(page.locator(".tile")).toHaveCount(1);
+  await expect(page.locator(".tile")).toContainText("Chromatique");
   await page.locator(".tile").click();
-  const dlg = page.getByRole("dialog");
-  await expect(dlg.locator(".opt").first()).toContainText("chromatique, pas full art");
+  const dlg = page.locator("#detail");
+  await expect(dlg.getByRole("heading", { name: /Abra/ })).toBeVisible();
+  await expect(dlg.locator(".opt").first()).toContainText(/chromatique, pas full art/i);
   await expect(dlg.locator(".price").first()).toContainText("€"); // prix simulés chargés avant la fin du test
 });
 
-test("liste d'achat : outil de l'en-tête, liens exacts et « Achetée »", async ({ page }) => {
+test("liste d'achat : objectif, liens exacts et « Achetée »", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Liste d'achat" }).click();
   const dlg = page.locator("#buy");
   await expect(dlg).toBeVisible();
+  await expect(dlg.getByLabel("Cartes")).toHaveValue("objectif");
   // pas de budget : la base E2E n'a pas de prix, et le budget écarte les cartes sans prix
   const first = dlg.locator("#buylist li").first();
   await expect(first.locator("a")).toHaveAttribute(
@@ -154,9 +225,13 @@ test("liste d'achat : outil de l'en-tête, liens exacts et « Achetée »", asyn
     /^https:\/\/www\.cardmarket\.com\/fr\/Pokemon\/Products\?idProduct=\d+$/,
   );
   const before = await dlg.locator("#buylist li").count();
-  await first.getByRole("button", { name: "Achetée" }).click();
+  await first.getByRole("button", { name: /achetée$/ }).click();
   await expect(page.locator(".toast")).toContainText("marqué comme acheté");
   await expect(dlg.locator("#buylist li")).toHaveCount(before - 1);
+  // export CSV de la liste affichée
+  const dl = page.waitForEvent("download");
+  await dlg.getByRole("button", { name: "Exporter (CSV)" }).click();
+  expect((await dl).suggestedFilename()).toMatch(/^liste-achat-\d{4}-\d{2}-\d{2}\.csv$/);
 });
 
 test("réglages : liste d'envies et export", async ({ page, context, isMobile }) => {
@@ -171,6 +246,8 @@ test("réglages : liste d'envies et export", async ({ page, context, isMobile })
   const dl = page.waitForEvent("download");
   await page.getByRole("button", { name: "Exporter (JSON)" }).click();
   expect((await dl).suggestedFilename()).toMatch(/^pokedex-\d{4}-\d{2}-\d{2}\.json$/);
+  // l'ancienne liaison API Cardmarket a disparu
+  await expect(page.getByText("Compte Cardmarket")).toHaveCount(0);
 });
 
 test("pas de défilement horizontal", async ({ page }) => {
@@ -182,7 +259,7 @@ test("pas de défilement horizontal", async ({ page }) => {
   expect(overflow).toBeLessThanOrEqual(0);
 });
 
-test("accessibilité (axe) : page et dialogue sans violation sérieuse", async ({ page }) => {
+test("accessibilité (axe) : page, fiche et visionneuse sans violation sérieuse", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".tile")).toHaveCount(151);
   const scan = async () =>
@@ -191,7 +268,10 @@ test("accessibilité (axe) : page et dialogue sans violation sérieuse", async (
       .map((v) => `${v.id}: ${v.nodes.length}`);
   expect(await scan()).toEqual([]);
   await page.locator(".tile").first().click();
-  await expect(page.getByRole("dialog").locator(".price").first()).toBeVisible();
+  await expect(page.locator("#detail .price").first()).toContainText("€");
+  expect(await scan()).toEqual([]);
+  await page.locator("#detail .zoom").click();
+  await expect(page.locator("#viewer")).toBeVisible();
   expect(await scan()).toEqual([]);
 });
 
