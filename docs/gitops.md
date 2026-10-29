@@ -49,7 +49,9 @@ Je n'ai pas accès au compte Cloudflare ni aux réglages GitHub : ces étapes re
    reporter `ACCESS_TEAM` et `ACCESS_AUD` dans `wrangler.jsonc`.
 3. Créer un **service token** « ci-smoke », l'autoriser dans chaque application (politique « Service Auth ») ; reporter son
    Client ID dans `CI_SERVICE_TOKEN_ID`. Le Worker ne lui ouvre que `GET /api/health`.
-4. Ajouter un domaine personnalisé au Worker (`routes` dans `wrangler.jsonc`) ; workers.dev reste désactivé.
+4. Ajouter un domaine personnalisé au Worker (`routes` dans `wrangler.jsonc`). workers.dev est activé en staging et
+   production uniquement pour les smoke tests (le Bot Fight Mode de la zone bloque les runners GitHub) : son hostname
+   doit figurer dans la **même** application Access que le domaine personnalisé.
 5. `openssl rand -base64 32 | npx wrangler secret put ENC_KEY --env staging` (puis `--env production`, clé différente).
 6. Jeton API Cloudflare limité au compte : *Workers Scripts: Edit*, *D1: Edit*, *Workers Routes: Edit*, *Account Settings: Read*.
 

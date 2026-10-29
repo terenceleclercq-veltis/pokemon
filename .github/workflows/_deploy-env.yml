@@ -28,6 +28,9 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       WRANGLER_SEND_METRICS: "false"
       ENV: ${{ inputs.environment }}
+      # Smoke tests via workers.dev : le Bot Fight Mode de veltis.be bloque les IP des runners GitHub.
+      # Même application Access (même AUD) que le domaine personnalisé.
+      SMOKE_URL: https://pokedex-kanto-${{ inputs.environment }}.terence-leclercq.workers.dev
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -56,23 +59,20 @@ jobs:
 
       - name: Smoke test (service token Access)
         env:
-          APP_URL: ${{ vars.APP_URL }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           for i in 1 2 3 4 5; do
             code=$(curl -sS -o health.json -w '%{http_code}' \
               -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-              "$APP_URL/api/health") || true
+              "$SMOKE_URL/api/health") || true
             [ "$code" = 200 ] && grep -q '"ok":true' health.json && { cat health.json; exit 0; }
             sleep $((i * 5))
           done
           echo "::error::smoke test en échec (HTTP $code)"; cat health.json || true; exit 1
       - name: Smoke test - accès anonyme refusé
-        env:
-          APP_URL: ${{ vars.APP_URL }}
         run: |
-          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-redirs 0 "$APP_URL/api/pokedex") || true
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-redirs 0 "$SMOKE_URL/api/pokedex") || true
           case "$code" in 302|401|403) echo "anonyme refusé ($code)";; *) echo "::error::accès anonyme non bloqué ($code)"; exit 1;; esac
 
       - name: Rollback automatique
