@@ -12,6 +12,8 @@ export interface Card {
   set_name: string;
   numero: string;
   code_cm: string | null;
+  /** Libellé exact de la recherche Cardmarket, calculé par le serveur. */
+  cm_label: string;
   tier: Tier;
   confiance: string;
   image: string | null;

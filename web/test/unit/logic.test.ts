@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { cheapestPerTier, higherThan, speciesStatus, wantsLine, type Card, type Owned } from "../../src/worker/logic";
+import {
+  cardmarketLabel,
+  cheapestPerTier,
+  higherThan,
+  speciesStatus,
+  wantsLine,
+  type Card,
+  type Owned,
+} from "../../src/worker/logic";
 
 const card = (id: string, tier: Card["tier"]): Card => ({
   id,
@@ -66,4 +74,18 @@ describe("wantsLine", () => {
     expect(wantsLine({ nom_fr: "Bulbizarre", set_name: "151", numero: "166", code_cm: "MEW 166" })).toBe(
       "1 Bulbizarre (MEW 166)",
     ));
+});
+
+describe("cardmarketLabel", () => {
+  const c = (nom_fr: string, code_cm: string | null) => ({ nom_fr, set_name: "151", numero: "198", code_cm });
+  it("« ex » sans tiret, comme Cardmarket", () => {
+    expect(cardmarketLabel(c("Florizarre-ex", "MEW 198"))).toBe("Florizarre ex (MEW 198)");
+    expect(cardmarketLabel(c("Kangourex-ex", "MEW 199"))).toBe("Kangourex ex (MEW 199)");
+  });
+  it("laisse « -EX », « -GX » et les noms sans suffixe intacts", () => {
+    expect(cardmarketLabel(c("Mew-EX", "DRV RC24"))).toBe("Mew-EX (DRV RC24)");
+    expect(cardmarketLabel(c("Dracaufeu-GX", "HIF SV49"))).toBe("Dracaufeu-GX (HIF SV49)");
+    expect(cardmarketLabel(c("Bulbizarre", "MEW 166"))).toBe("Bulbizarre (MEW 166)");
+  });
+  it("sans code : extension et numéro", () => expect(cardmarketLabel(c("Mew-ex", null))).toBe("Mew ex (151 198)"));
 });

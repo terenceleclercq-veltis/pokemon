@@ -14,6 +14,7 @@ import {
   TIER_LABEL,
   TIERS,
   wantsLine,
+  cardmarketLabel,
   type Card,
   type Price,
 } from "./logic";
@@ -123,7 +124,7 @@ async function pokedex(db: D1Database) {
       keep: keep.get(s.num) ?? null,
       higher: o ? higherThan(cards, o).map((c) => c.id) : [],
       options: TIERS.flatMap((t) => (best[t] ? [{ tier: t, label: TIER_LABEL[t], card_id: best[t].id }] : [])),
-      cards: cards.map((c) => ({ ...c, price: price[c.id] ?? null })),
+      cards: cards.map((c) => ({ ...c, cm_label: cardmarketLabel(c), price: price[c.id] ?? null })),
     };
   });
 }

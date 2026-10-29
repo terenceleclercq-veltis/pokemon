@@ -20,9 +20,8 @@ const cheapest = (s: Species) =>
     .sort((a, b) => a - b)[0];
 
 /** Action utilisateur : désactive le bouton pendant l'appel, toute erreur devient un message (aucun rejet non géré). */
-/** Code Cardmarket (« MEW 166 ») : un clic copie « Bulbizarre (MEW 166) », le libellé exact de la recherche. */
-function cmCode(nom: string, code: string): HTMLButtonElement {
-  const label = `${nom} (${code})`;
+/** Code Cardmarket (« MEW 166 ») : un clic copie le libellé exact de la recherche (« Bulbizarre (MEW 166) »). */
+function cmCode(code: string, label: string): HTMLButtonElement {
   return h(
     "button",
     {
@@ -222,7 +221,7 @@ function paint(s: Species, loading: boolean): void {
           h(
             "div",
             { class: "grow" },
-            h("div", {}, c.nom_fr, c.code_cm ? cmCode(c.nom_fr, c.code_cm) : null),
+            h("div", {}, c.nom_fr, c.code_cm ? cmCode(c.code_cm, c.cm_label) : null),
             h(
               "div",
               { class: "mut" },
