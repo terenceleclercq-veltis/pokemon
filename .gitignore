@@ -4,3 +4,11 @@ __pycache__/
 .venv/
 web/node_modules/
 web/.wrangler/
+web/.dev.vars*
+web/public/app.js
+web/public/app.js.map
+web/coverage/
+web/playwright-report/
+web/test-results/
+web/dist/
+web/backup-*.sql

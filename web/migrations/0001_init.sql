@@ -1,4 +1,4 @@
--- Schéma D1 (SQLite). Appliquer : wrangler d1 execute pokedex --remote --file=schema.sql
+-- Migration 0001 : schéma initial. Appliquée par « wrangler d1 migrations apply DB » (CI/CD).
 CREATE TABLE IF NOT EXISTS species (
   num INTEGER PRIMARY KEY CHECK (num BETWEEN 1 AND 151),
   nom_fr TEXT NOT NULL, nom_en TEXT NOT NULL

@@ -1,42 +1,46 @@
-# Pokédex Kanto full art (Cloudflare Worker + D1)
+# Pokédex Kanto full art
 
-Site personnel : suivi des 151 espèces, prix en direct (Full art / IR / SIR) des cartes manquantes,
-détection des versions plus rares pour les cartes déjà possédées, choix « je préfère la mienne ».
+Site personnel : suivi des 151 espèces, prix en direct (Full art / IR / SIR) des cartes manquantes, détection des
+versions plus rares pour les cartes possédées, choix « je préfère la mienne » qui arrête la vérification.
 
-## Déploiement (à faire par Terence, avec son compte Cloudflare)
+## Pile technique et pourquoi
+
+| Choix                                | Raison                                                                                  |
+| ------------------------------------ | --------------------------------------------------------------------------------------- |
+| Cloudflare Workers + D1 + Assets     | une seule plateforme, pas de serveur, base SQL, cron, limite de débit intégrée          |
+| [Hono](https://hono.dev)             | routeur conçu pour Workers (~15 Ko), middlewares de sécurité standards                  |
+| TypeScript strict + Zod (`zod/mini`) | types de bout en bout, validation de chaque entrée ; `zod/mini` divise le bundle par 6  |
+| Front sans framework (TS + esbuild)  | 151 tuiles et 2 dialogues : un framework ajouterait du poids sans bénéfice ; 9 Ko de JS |
+| Vitest dans workerd + Playwright     | tests dans le même runtime que la production, et dans un vrai navigateur                |
+
+## Commandes (dans `web/`)
 
 ```bash
-cd web && npm install
-npx wrangler login
-npx wrangler d1 create pokedex          # copier database_id dans wrangler.jsonc
-npx wrangler d1 execute pokedex --remote --file=schema.sql
-python3 ../scripts/06_seed_web.py       # régénère seed.sql si le catalogue change
-npx wrangler d1 execute pokedex --remote --file=seed.sql
-openssl rand -base64 32 | npx wrangler secret put ENC_KEY   # chiffrement des clés Cardmarket
-npx wrangler deploy
+npm ci                   # installe (npm 11 : scripts d'installation bloqués sauf liste blanche)
+npm run dev              # Worker local, auth contournée UNIQUEMENT sur localhost en développement
+npm run check            # lint + types + tests (workerd)
+npm test -- --coverage   # couverture (seuils imposés)
+npm run test:e2e         # Playwright desktop + mobile, accessibilité axe
 ```
 
-Ensuite, **avant d'utiliser le site** (sans cela toute requête est refusée : le Worker échoue en mode fermé) :
+Le déploiement passe exclusivement par la CI : voir [`docs/gitops.md`](../docs/gitops.md).
 
-1. Cloudflare Zero Trust → Access → Applications → ajouter le site (self-hosted), politique « Allow » = ton e-mail uniquement.
-2. Reporter dans `wrangler.jsonc` : `ACCESS_TEAM` (nom d'équipe) et `ACCESS_AUD` (Application Audience tag), puis `wrangler deploy`.
-3. Ajouter la route/domaine personnalisé (workers.dev et URLs de prévisualisation sont désactivés).
+## Sécurité
 
-## Sécurité en place
-
-- Authentification : JWT Cloudflare Access vérifié dans le Worker (signature RS256, `aud`, `iss`, expiration, e-mail autorisé). Pas de jeton valide = 401.
-- Pas de contournement en production : `DEV_BYPASS_AUTH` n'existe que via `npm run dev` et seulement sur `localhost`.
-- Anti-CSRF : en-tête `X-Requested-With` obligatoire + contrôle `Origin` sur toute écriture.
-- CSP stricte (aucun script/style inline), HSTS, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`.
-- Interface sans `innerHTML` (anti-XSS) ; requêtes SQL paramétrées ; entrées validées (bornes, listes blanches, tailles).
-- Identifiants Cardmarket : chiffrés AES-GCM avec `ENC_KEY` (secret Worker, hors base), jamais renvoyés au navigateur, lecture seule ; hôte API figé sur `api.cardmarket.com`.
-- Journal d'audit (`audit_log`) des modifications. Erreurs internes sans détail côté client.
-
-À ajouter côté dashboard Cloudflare (hors code) : règle WAF de limitation de débit sur `/api/*`, alertes, sauvegarde D1 (`wrangler d1 export`) ou export JSON depuis Réglages.
+- **Authentification** : Cloudflare Access + vérification du JWT dans le Worker (RS256, `aud`, `iss`, `exp`, `nbf`,
+  e-mail autorisé, rotation des clés gérée). Échec ou config incomplète = 401 (fail closed).
+- **Contournement de dev** : exige `ENVIRONMENT=development` + drapeau + `localhost` ; interdit dans `wrangler.jsonc` (CI).
+- **CSRF** : en-tête custom obligatoire + contrôle `Origin` et `Sec-Fetch-Site` sur toute écriture.
+- **En-têtes** : CSP stricte sans `unsafe-*` avec Trusted Types, HSTS preload, `nosniff`, `DENY`, `no-referrer`, Permissions-Policy.
+- **XSS** : aucun `innerHTML` (règle ESLint), construction DOM avec liste blanche d'attributs et d'URL.
+- **Entrées** : Zod partout (bornes, listes blanches, objets stricts, tailles), corps limité à 256 Ko, SQL paramétré.
+- **Réponses externes** (TCGdex, Cardmarket) validées avant usage ; délais d'expiration ; hôtes figés (anti-SSRF).
+- **Limite de débit** : 120 requêtes/min par utilisateur (binding Workers Rate Limiting).
+- **Secrets Cardmarket** : AES-256-GCM avec données associées, clé `ENC_KEY` hors base, jamais renvoyés au navigateur.
+- **Audit** : journal des écritures (rétention 1 an), erreurs internes sans détail côté client.
 
 ## Limites connues
 
-- Prix = tendance Cardmarket relevée par TCGdex, tous états/langues confondus, cache 15 min ; ce n'est pas le prix d'une annonce précise.
-- Liaison Cardmarket (OAuth 1.0a, `/account`) **non testée** : l'accès à l'API Cardmarket est restreint [à vérifier]. Elle ne passe jamais de commande.
-- Catalogue = `data/catalogue_fullart.csv` (formes régionales/Méga et Hyper Rare exclues, cas ambigus à part). « Plus rare » = ordre Full art < IR < SIR.
-- Les cartes du set 30e Anniversaire n'ont pas encore de prix chez TCGdex (affichées « n/d »).
+- Prix = tendance Cardmarket relevée par TCGdex (tous états et langues), cache 15 min.
+- Liaison Cardmarket (OAuth 1.0a) testée contre un vecteur de référence mais **pas contre l'API réelle** : son accès est restreint.
+- « Plus rare » = ordre Full art < IR < SIR.

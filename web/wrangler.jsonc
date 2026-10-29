@@ -1,11 +1,72 @@
+// Configuration déclarative du Worker (source de vérité GitOps).
+// Top-level = développement local ; env.staging / env.production = déployés par la CI uniquement.
+// Les clés non héritées (vars, d1_databases, ratelimits) sont répétées dans chaque environnement.
 {
+  "$schema": "node_modules/wrangler/config-schema.json",
   "name": "pokedex-kanto",
-  "main": "src/index.js",
+  "main": "src/worker/index.ts",
   "compatibility_date": "2026-10-01",
+  "build": { "command": "npm run build:client" },
   "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
-  "d1_databases": [{ "binding": "DB", "database_name": "pokedex", "database_id": "REMPLACER_APRES_wrangler_d1_create" }],
-  "triggers": { "crons": ["17 4 * * *"] },
-  "vars": { "ACCESS_TEAM": "REMPLACER_nom_equipe_zero_trust", "ACCESS_AUD": "REMPLACER_aud_application_access", "ALLOWED_EMAIL": "terence.leclercq@veltis.be" },
+  "observability": { "enabled": true },
+  "upload_source_maps": true,
   "workers_dev": false,
-  "preview_urls": false
+  "preview_urls": false,
+  "triggers": { "crons": ["*/30 * * * *"] },
+  "vars": {
+    "ENVIRONMENT": "development",
+    "ACCESS_TEAM": "",
+    "ACCESS_AUD": "",
+    "ALLOWED_EMAIL": "",
+    "CI_SERVICE_TOKEN_ID": "",
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pokedex-dev",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "ratelimits": [{ "name": "RATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 120, "period": 60 } }],
+  "env": {
+    "staging": {
+      "vars": {
+        "ENVIRONMENT": "staging",
+        "ACCESS_TEAM": "REMPLACER",
+        "ACCESS_AUD": "REMPLACER",
+        "ALLOWED_EMAIL": "terence.leclercq@veltis.be",
+        "CI_SERVICE_TOKEN_ID": "REMPLACER",
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "pokedex-staging",
+          "database_id": "REMPLACER_ID_D1_STAGING",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "ratelimits": [{ "name": "RATE_LIMITER", "namespace_id": "1002", "simple": { "limit": 120, "period": 60 } }],
+      "triggers": { "crons": ["*/30 * * * *"] },
+    },
+    "production": {
+      "vars": {
+        "ENVIRONMENT": "production",
+        "ACCESS_TEAM": "REMPLACER",
+        "ACCESS_AUD": "REMPLACER",
+        "ALLOWED_EMAIL": "terence.leclercq@veltis.be",
+        "CI_SERVICE_TOKEN_ID": "REMPLACER",
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "pokedex",
+          "database_id": "REMPLACER_ID_D1_PRODUCTION",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "ratelimits": [{ "name": "RATE_LIMITER", "namespace_id": "1003", "simple": { "limit": 120, "period": 60 } }],
+      "triggers": { "crons": ["*/30 * * * *"] },
+    },
+  },
 }
