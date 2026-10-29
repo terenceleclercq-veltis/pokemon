@@ -5,6 +5,7 @@
   --pic: #eef0f4;
   --mut: #59606b;
   --bd: #d3d8df;
+  /* couleurs d'état : le texte posé dessus est en var(--bg) (contraste ≥ 4,5 dans les deux thèmes) */
   --ok: #1f7a43;
   --miss: #b8402d;
   --chk: #8a5d00;
@@ -269,7 +270,7 @@ a {
   height: 26px;
   border-radius: 50%;
   background: var(--ok);
-  color: #fff;
+  color: var(--bg);
   font-weight: 700;
   box-shadow: 0 1px 4px #0008;
 }
@@ -557,7 +558,7 @@ ul.versions {
 .chip.deal {
   border-color: transparent;
   background: var(--ok);
-  color: #fff;
+  color: var(--bg);
 }
 button.link {
   min-height: 0;
@@ -571,7 +572,7 @@ button.link {
 button.primary {
   border-color: var(--ok);
   background: var(--ok);
-  color: #fff;
+  color: var(--bg);
 }
 .acts {
   display: flex;
@@ -837,7 +838,7 @@ dialog.viewer::backdrop {
 }
 .toast.err {
   background: var(--miss);
-  color: #fff;
+  color: var(--bg);
 }
 
 @media (max-width: 640px) {
