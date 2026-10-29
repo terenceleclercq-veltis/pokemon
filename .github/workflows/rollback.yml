@@ -1,0 +1,51 @@
+# Retour arrière manuel vers une version précise (ou la précédente si vide).
+name: Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environnement
+        type: choice
+        options: [staging, production]
+        required: true
+      version_id:
+        description: ID de version Cloudflare (vide = version précédente)
+        required: false
+      reason:
+        description: Raison
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: ${{ inputs.environment }}
+    defaults:
+      run:
+        working-directory: web
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      ENV: ${{ inputs.environment }}
+      VERSION: ${{ inputs.version_id }}
+      REASON: ${{ inputs.reason }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm install -g npm@11.21.1 && npm ci
+      # Les entrées passent par des variables d'environnement (pas d'interpolation dans le script : anti-injection).
+      - run: npx wrangler rollback ${VERSION:+"$VERSION"} --env "$ENV" --message "$REASON (par $GITHUB_ACTOR)" -y
