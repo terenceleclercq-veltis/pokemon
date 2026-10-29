@@ -25,7 +25,9 @@ test.beforeEach(async ({ page }) => {
   page.on("pageerror", (e) => consoleErrors.push(e.message));
   await mockPrices(page);
 });
-test.afterEach(() => {
+test.afterEach(async ({ page }) => {
+  // une requête de prix simulée encore en vol à la fin du test ne doit pas le faire échouer
+  await page.unrouteAll({ behavior: "ignoreErrors" });
   // inclut les violations CSP / Trusted Types, qui sont journalisées comme erreurs
   expect(consoleErrors).toEqual([]);
 });
@@ -105,6 +107,7 @@ test("carte japonaise : seulement sans IR/SIR française, signalée comme telle"
   await page.goto("/#q=Paras");
   await page.locator(".tile", { hasText: "Paras" }).first().click();
   const dlg = page.getByRole("dialog");
+  await expect(dlg.locator(".price").first()).toContainText("€");
   const opt = dlg.locator(".opt", { hasText: "s12a 207" });
   await expect(opt.locator(".lang")).toHaveText("Japonaise");
   await expect(opt.getByRole("link", { name: "Paras (s12a 207) sur Cardmarket" })).toHaveAttribute(
@@ -118,6 +121,7 @@ test("carte japonaise : seulement sans IR/SIR française, signalée comme telle"
   await page.locator(".tile").click();
   await expect(dlg.getByRole("heading", { name: /Bulbizarre/ })).toBeVisible();
   await expect(dlg.locator(".lang")).toHaveCount(0);
+  await expect(dlg.locator(".price").first()).toContainText("€"); // prix simulés servis avant la fin du test
 });
 
 test("cartes de repli : forme admise en IR", async ({ page }) => {
