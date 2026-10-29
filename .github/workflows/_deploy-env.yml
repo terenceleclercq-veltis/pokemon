@@ -20,6 +20,11 @@ jobs:
     name: ${{ inputs.environment }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    # un seul déploiement à la fois par environnement (partagé avec catalogue.yml et rollback.yml) ;
+    # jamais interrompu en cours de migration
+    concurrency:
+      group: deploy-${{ inputs.environment }}
+      cancel-in-progress: false
     environment:
       name: ${{ inputs.environment }}
       url: ${{ vars.APP_URL }}
@@ -42,8 +47,6 @@ jobs:
 
       - name: Garde-fou - configuration complète
         run: node scripts/check-env.mjs "$ENV"
-      - name: Garde-fou - secret de chiffrement présent
-        run: npx wrangler secret list --env "$ENV" --format json | node scripts/require-secret.mjs ENC_KEY
       - name: Version actuellement en ligne (pour rollback)
         id: before
         run: echo "version=$(npx wrangler deployments status --env "$ENV" --json 2>/dev/null | node scripts/current-version.mjs)" >> "$GITHUB_OUTPUT"

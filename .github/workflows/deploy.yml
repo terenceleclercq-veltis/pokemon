@@ -10,9 +10,8 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: deploy
-  cancel-in-progress: false # ne jamais interrompre une migration/un déploiement en cours
+# Verrou par environnement dans _deploy-env.yml (pas ici) : une production en attente d'approbation ne bloque plus
+# la CI ni le staging des commits suivants.
 
 jobs:
   ci:
