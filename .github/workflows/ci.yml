@@ -1,0 +1,131 @@
+# Intégration continue : tout PR, et appelée par deploy.yml avant chaque déploiement.
+name: CI
+
+on:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: web
+
+env:
+  NPM_VERSION: 11.21.1
+
+jobs:
+  quality:
+    name: Lint, types, tests unitaires et intégration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm install -g "npm@$NPM_VERSION"
+      - run: npm ci
+      - name: Types Wrangler à jour
+        run: npm run types && git diff --exit-code worker-configuration.d.ts
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test -- --coverage
+      - name: Bundle de production (dry-run)
+        run: npx wrangler deploy --dry-run --env production --outdir dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: coverage
+          path: web/coverage/
+          retention-days: 14
+
+  e2e:
+    name: Tests navigateur (Playwright + axe)
+    needs: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm install -g "npm@$NPM_VERSION"
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            web/playwright-report/
+            web/test-results/
+          retention-days: 14
+
+  data:
+    name: Scripts de données (seed synchronisé)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - run: python -m py_compile scripts/*.py
+      - name: web/seed.sql correspond au catalogue versionné
+        run: |
+          pip install --quiet requests==2.32.5
+          python scripts/06_seed_web.py
+          git diff --exit-code web/seed.sql
+
+  security:
+    name: Sécurité (dépendances, secrets, configuration)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write # commentaire de dependency-review
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        if: github.event_name == 'pull_request'
+        with:
+          fail-on-severity: moderate
+          comment-summary-in-pr: on-failure
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+      - run: npm install -g "npm@$NPM_VERSION"
+      - name: Vulnérabilités connues (npm audit)
+        run: npm audit --audit-level=high
+      - name: Signatures et provenance des paquets
+        run: npm ci --ignore-scripts && npm audit signatures
+      - name: Recherche de secrets (historique complet)
+        uses: trufflesecurity/trufflehog@31ce31ee1abbcc7dc8eee5764c17121c3044c8b2 # v3.99.7
+        with:
+          extra_args: --results=verified,unknown
+      - name: Aucun contournement d'authentification dans la configuration déployée
+        run: |
+          if grep -n "DEV_BYPASS_AUTH" wrangler.jsonc; then echo "::error::DEV_BYPASS_AUTH interdit dans wrangler.jsonc"; exit 1; fi

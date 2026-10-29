@@ -1,0 +1,10 @@
+node_modules
+public/app.js
+public/app.js.map
+coverage
+playwright-report
+test-results
+.wrangler
+worker-configuration.d.ts
+seed.sql
+package-lock.json

@@ -1,0 +1,36 @@
+# Livraison continue (GitOps) : main = source de vérité.
+# push sur main -> CI -> staging (automatique) -> production (approbation manuelle via l'environnement GitHub).
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false # ne jamais interrompre une migration/un déploiement en cours
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+      pull-requests: write
+
+  staging:
+    needs: ci
+    uses: ./.github/workflows/_deploy-env.yml
+    with:
+      environment: staging
+    secrets: inherit
+
+  production:
+    needs: staging
+    uses: ./.github/workflows/_deploy-env.yml
+    with:
+      environment: production
+    secrets: inherit

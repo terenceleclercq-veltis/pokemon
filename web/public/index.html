@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#d4513d" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Pokédex Kanto</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
+    <link rel="stylesheet" href="/style.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <a class="skip" href="#grid">Aller à la grille</a>
+    <header>
+      <h1>Pokédex Kanto <small>full art</small></h1>
+      <p id="progress" aria-live="polite">Chargement…</p>
+      <div
+        id="bar"
+        class="bar"
+        role="progressbar"
+        aria-label="Espèces complètes"
+        aria-valuemin="0"
+        aria-valuemax="151"
+        aria-valuenow="0"
+      >
+        <div id="bar-fill"></div>
+      </div>
+      <div class="tools">
+        <label class="sr" for="q">Rechercher</label>
+        <input id="q" type="search" placeholder="Nom ou n°" autocomplete="off" />
+        <label class="sr" for="filter">Filtrer</label>
+        <select id="filter">
+          <option value="all">Tout</option>
+          <option value="manquante">Manquantes</option>
+          <option value="a_verifier">Version plus rare dispo</option>
+          <option value="complete">Complètes</option>
+          <option value="choisie">Choix conservé</option>
+          <option value="none">Sans full art FR</option>
+        </select>
+        <button id="btn-settings" type="button">Réglages</button>
+      </div>
+    </header>
+    <main>
+      <div id="grid" role="list" aria-label="Espèces"></div>
+      <p id="empty" hidden>Aucune espèce ne correspond.</p>
+    </main>
+
+    <dialog id="detail" aria-labelledby="detail-title">
+      <div id="detail-body"></div>
+      <button class="close" type="button" data-close>Fermer</button>
+    </dialog>
+
+    <dialog id="settings" aria-labelledby="settings-title">
+      <h2 id="settings-title">Réglages</h2>
+      <section>
+        <h3>Liste d'envies Cardmarket</h3>
+        <p>Copie les espèces manquantes, à coller dans Cardmarket → Achats → Wants.</p>
+        <label class="sr" for="wants-tier">Rareté</label>
+        <select id="wants-tier">
+          <option value="cheapest">La moins chère</option>
+          <option value="FA">Full art</option>
+          <option value="IR">IR</option>
+          <option value="SIR">SIR</option>
+        </select>
+        <button id="btn-wants" type="button">Copier</button>
+      </section>
+      <section>
+        <h3>Sauvegarde</h3>
+        <button id="btn-export" type="button">Exporter (JSON)</button>
+        <label class="file"
+          >Importer (remplace tout)<input id="file-import" type="file" accept="application/json"
+        /></label>
+      </section>
+      <section>
+        <h3>Compte Cardmarket</h3>
+        <p id="cm-state">…</p>
+        <p class="warn">
+          Lecture seule, jamais de commande. Les clés sont chiffrées côté serveur et ne sont jamais réaffichées. L'accès
+          à l'API Cardmarket est restreint : liaison non testée.
+        </p>
+        <form id="cm-form" autocomplete="off">
+          <label>App token <input name="appToken" required minlength="6" maxlength="200" spellcheck="false" /></label>
+          <label>App secret <input name="appSecret" type="password" required minlength="6" maxlength="200" /></label>
+          <label
+            >Access token <input name="accessToken" required minlength="6" maxlength="200" spellcheck="false"
+          /></label>
+          <label
+            >Access token secret <input name="accessSecret" type="password" required minlength="6" maxlength="200"
+          /></label>
+          <button type="submit">Lier</button>
+          <button type="button" id="cm-test">Tester</button>
+          <button type="button" id="cm-unlink" class="danger">Délier</button>
+        </form>
+      </section>
+      <button class="close" type="button" data-close>Fermer</button>
+    </dialog>
+    <div id="toasts" aria-live="polite"></div>
+  </body>
+</html>

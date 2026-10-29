@@ -1,0 +1,5 @@
+# Toute modification passe par la revue de Terence (à activer dans la règle de protection de main).
+*                          @terenceleclercq-veltis
+/.github/                  @terenceleclercq-veltis
+/web/migrations/           @terenceleclercq-veltis
+/web/wrangler.jsonc        @terenceleclercq-veltis
