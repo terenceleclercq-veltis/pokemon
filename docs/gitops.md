@@ -39,27 +39,34 @@ Les migrations s'appliquent **avant** le nouveau code ; l'ancienne version doit 
 schéma (et le rollback ne défait pas une migration). Ajouter colonnes/tables dans une livraison, retirer l'ancien usage
 dans une livraison suivante. Jamais de `DROP` ou de renommage dans la même livraison que le code qui en dépend.
 
-## Configuration à faire une fois (par Terence)
+## Configuration (faite le 29/10/2026)
 
-Je n'ai pas accès au compte Cloudflare ni aux réglages GitHub : ces étapes restent manuelles.
+État en place, à refaire seulement pour un nouvel environnement ou un nouveau compte.
 
-**Cloudflare** (compte dédié « pokemon » ; migration des secrets GitHub : `scripts/migrer-compte-pokemon.sh`)
-1. Créer deux bases : `npx wrangler d1 create pokedex-staging` et `npx wrangler d1 create pokedex`, reporter les `database_id` dans `wrangler.jsonc`.
-2. Zero Trust → Access : une application par environnement (domaine du Worker), politique « Allow » = ton e-mail ;
-   reporter `ACCESS_TEAM` et `ACCESS_AUD` dans `wrangler.jsonc`.
-3. Créer un **service token** « ci-smoke », l'autoriser dans chaque application (politique « Service Auth ») ; reporter son
-   Client ID dans `CI_SERVICE_TOKEN_ID`. Le Worker ne lui ouvre que `GET /api/health`.
-4. Le site est servi sur workers.dev (`workers_dev: true` par environnement, compte Cloudflare dédié « pokemon »,
-   sous-domaine `pokedex-terence`) ; l'hostname doit figurer dans l'application Access de l'environnement.
-5. `openssl rand -base64 32 | npx wrangler secret put ENC_KEY --env staging` (puis `--env production`, clé différente).
-6. Jeton API Cloudflare limité au compte : *Workers Scripts: Edit*, *D1: Edit*, *Workers Routes: Edit*, *Account Settings: Read*.
+**Cloudflare** : compte dédié « pokemon », équipe Zero Trust `weathered-sun-382a`, sous-domaine workers.dev
+`pokedex-terence`.
+1. Bases D1 `pokedex-staging` et `pokedex` (`npx wrangler d1 create …`), `database_id` dans `wrangler.jsonc`.
+2. Site servi sur `https://pokedex-kanto-<env>.pokedex-terence.workers.dev` (`workers_dev: true` par environnement).
+   Pas de domaine personnalisé, donc pas de Bot Fight Mode devant les smoke tests.
+3. Une application Access par environnement sur cet hostname : politique « Allow » = ton e-mail, politique
+   « Service Auth » = service token **ci-smoke** (le Worker ne lui ouvre que `GET /api/health`). `ACCESS_TEAM`,
+   `ACCESS_AUD` et `CI_SERVICE_TOKEN_ID` dans `wrangler.jsonc`. Le service token expire au bout d'un an : relancer
+   l'étape 3 de `scripts/migrer-compte-pokemon.sh` pour le renouveler, puis mettre à jour `CI_SERVICE_TOKEN_ID`.
+4. `openssl rand -base64 32 | npx wrangler secret put ENC_KEY --env staging` (puis `--env production`, clé différente).
+   Ne jamais la régénérer une fois des identifiants Cardmarket enregistrés : ils deviendraient illisibles.
+5. Jeton API CI limité au compte pokemon : *Workers Scripts: Edit*, *D1: Edit*, *Account Settings: Read*.
 
-**GitHub** (Settings)
-1. Environments `staging` et `production` avec les secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`,
-   `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` et la variable `APP_URL`.
+**Catalogue** : au premier déploiement d'un environnement (base vide), le pipeline charge `seed.sql`. Ensuite, toute
+mise à jour du catalogue passe par `catalogue.yml` (sauvegarde D1 préalable), car `seed.sql` retire les cartes qui
+ne sont plus au catalogue.
+
+**GitHub** : environnements, secrets, variables, ruleset et sécurité sont posés par `scripts/configurer-github.sh`
+(première configuration) et `scripts/migrer-compte-pokemon.sh` (bascule de compte), à lancer sur un poste avec `gh` :
+le proxy des sessions Claude Code cloud refuse ces écritures.
+1. Environnements `staging` et `production` : secrets `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`,
+   `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, variable `APP_URL`.
 2. `production` : *Required reviewers* = toi, *Deployment branches* = `main` uniquement.
-3. Ruleset sur `main` : PR obligatoire, checks requis (`Lint, types, tests…`, `Tests navigateur…`, `Scripts de données…`,
-   `Sécurité…`, `CodeQL`), historique linéaire, pas de force-push, revue des CODEOWNERS.
-4. Activer Dependabot alerts, secret scanning et push protection.
+3. Ruleset sur `main` : PR obligatoire, checks requis (CI et CodeQL), historique linéaire, pas de force-push.
+4. Dependabot alerts, secret scanning et push protection activés (dépôt public).
 
 Tant que `wrangler.jsonc` contient `REMPLACER`, le déploiement s'arrête au premier garde-fou (`scripts/check-env.mjs`).
