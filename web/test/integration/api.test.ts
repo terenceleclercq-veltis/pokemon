@@ -14,6 +14,8 @@ interface SpeciesDto {
     code_cm: string | null;
     cm_label: string;
     cm_url: string | null;
+    tier: string;
+    langue: string;
     price: { trend: number } | null;
   }[];
 }
@@ -22,7 +24,7 @@ const species = async (n: number) => (await pokedex()).find((s) => s.num === n)!
 
 beforeEach(() => {
   resetJwksCache();
-  mockOutbound({ "xy1-141": 50, "sv03.5-166": 40, "sv03.5-198": 90, "sv03.5-167": 20 });
+  mockOutbound({ "xy1-141": 50, "sv03.5-166": 40, "sv03.5-198": 90, "sv03.5-167": 20, "S12a-207": 17 });
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -127,6 +129,31 @@ describe("pokédex et cycle de vie d'une espèce", () => {
     const hist = await env.DB.prepare("SELECT COUNT(*) n FROM price_history").first<{ n: number }>();
     expect(hist?.n).toBe(3);
   });
+  it("carte dans une autre langue : prix lus sur TCGdex dans sa langue, langue exposée", async () => {
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO species VALUES (46,'Paras','Paras')"),
+      env.DB.prepare(
+        `INSERT INTO cards (id,species_num,nom_fr,set_name,numero,categorie,tier,confiance,id_product,code_cm,nom_cm,langue)
+         VALUES ('S12a-207',46,'Paras','VSTAR Universe','207','AR','IR','certain',687769,'s12a 207','Paras [Absorb]','ja')`,
+      ),
+    ]);
+    const live = await (await call("/api/species/46/prices")).json<Record<string, { trend: number }>>();
+    expect(live["S12a-207"]?.trend).toBe(17);
+    const urls = vi.mocked(fetch).mock.calls.map(([u]) => String(u instanceof Request ? u.url : u));
+    expect(urls).toContain("https://api.tcgdex.net/v2/ja/cards/S12a-207");
+    const paras = (await species(46)).cards[0];
+    expect(paras).toMatchObject({ langue: "ja", tier: "IR", cm_label: "Paras (s12a 207)" });
+    expect((await species(1)).cards.every((c) => c.langue === "fr")).toBe(true);
+    // le stockage n'est pas isolé entre tests : on retire l'espèce ajoutée
+    await env.DB.batch(
+      [
+        "DELETE FROM price_history WHERE card_id = 'S12a-207'",
+        "DELETE FROM price_cache WHERE card_id = 'S12a-207'",
+        "DELETE FROM cards WHERE id = 'S12a-207'",
+        "DELETE FROM species WHERE num = 46",
+      ].map((q) => env.DB.prepare(q)),
+    );
+  });
   it("IR possédée -> à vérifier -> « je préfère la mienne » -> choisie", async () => {
     expect((await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } })).status).toBe(200);
     let s = await species(1);
@@ -190,6 +217,7 @@ describe("liste d'envies, export/import", () => {
         espece: "Herbizarre",
         label: "Herbizarre (MEW 167)",
         url: "https://www.cardmarket.com/fr/Pokemon/Products?idProduct=733762",
+        langue: "fr",
         trend: 20,
       },
     ]);

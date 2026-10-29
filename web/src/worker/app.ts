@@ -180,12 +180,7 @@ app.get("/api/pokedex", async (c) =>
 app.get("/api/species/:num/prices", async (c) => {
   const num = speciesNum(c);
   const { results } = await cardsOf(c.env.DB, num);
-  return c.json(
-    await refreshPrices(
-      c.env.DB,
-      results.map((r) => r.id),
-    ),
-  );
+  return c.json(await refreshPrices(c.env.DB, results));
 });
 
 app.put("/api/species/:num/owned", async (c) => {
@@ -287,6 +282,7 @@ app.get("/api/buylist", async (c) => {
       espece: x.espece,
       label: x.cm_label,
       url: x.cm_url,
+      langue: x.langue,
       trend: p ?? null,
     });
   }

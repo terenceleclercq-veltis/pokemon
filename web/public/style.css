@@ -224,6 +224,14 @@ dialog::backdrop {
     600 0.8rem ui-monospace,
     monospace;
 }
+.lang {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
 .badge {
   font-size: 0.8rem;
   color: var(--ok);

@@ -60,6 +60,12 @@ dans une livraison suivante. Jamais de `DROP` ou de renommage dans la même livr
 Rare » sont ajoutées à la main (catégorie `PROMO_IR`, comptée comme IR) après vérification visuelle ; TCGdex les classe
 toutes en « Promo » sans distinguer le style.
 
+**Cartes dans une autre langue** : seulement pour une espèce qui n'a **aucune** IR ni SIR en français (promos IR
+comprises). Lignes à la main dans le CSV : `existe_en_fr = non`, `langue` (code TCGdex, ex. `ja`), `id_tcgdex_autre`
+(id TCGdex dans cette langue), catégorie `AR`/`SAR` (comptée IR/SIR). `06_seed_web.py` ignore une telle ligne dès
+qu'une IR/SIR française existe pour l'espèce ; les prix sont lus sur `api.tcgdex.net/v2/<langue>/cards/<id>`. Les
+formes (Hisui, Méga…) restent exclues comme dans le catalogue français.
+
 **Catalogue** : `data/catalogue_fullart.csv` → `scripts/07_codes_cardmarket.py` (code Cardmarket « MEW 166 », depuis
 TCGdex) → `scripts/06_seed_web.py` → `web/seed.sql`. Au premier déploiement d'un environnement (base vide), le pipeline charge `seed.sql`. Ensuite, toute
 mise à jour du catalogue passe par `catalogue.yml` (sauvegarde D1 préalable), car `seed.sql` retire les cartes qui

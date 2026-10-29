@@ -12,8 +12,14 @@ export interface LivePrice {
   image: string | null;
 }
 
-export async function fetchPrice(id: string, fetcher: typeof fetch = fetch): Promise<LivePrice | null> {
-  const url = `https://api.tcgdex.net/v2/fr/cards/${encodeURIComponent(id)}`;
+/** Carte à rafraîchir : id TCGdex et langue de la carte (« fr », ou « ja » pour une carte japonaise). */
+export interface PriceRef {
+  id: string;
+  langue: string;
+}
+
+export async function fetchPrice({ id, langue }: PriceRef, fetcher: typeof fetch = fetch): Promise<LivePrice | null> {
+  const url = `https://api.tcgdex.net/v2/${encodeURIComponent(langue)}/cards/${encodeURIComponent(id)}`;
   const r = await fetcher(url, {
     cf: { cacheTtl: EDGE_TTL_S, cacheEverything: true },
     signal: AbortSignal.timeout(5000),
@@ -34,16 +40,16 @@ export async function fetchPrice(id: string, fetcher: typeof fetch = fetch): Pro
 /** Rafraîchit les cartes données (concurrence bornée), écrit cache + historique en un seul batch D1. */
 export async function refreshPrices(
   db: D1Database,
-  ids: readonly string[],
+  cards: readonly PriceRef[],
   fetcher: typeof fetch = fetch,
 ): Promise<Record<string, LivePrice>> {
   const out: Record<string, LivePrice> = {};
-  const queue = [...ids];
+  const queue = [...cards];
   await Promise.all(
     Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
-      for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
-        const p = await fetchPrice(id, fetcher).catch(() => null);
-        if (p) out[id] = p;
+      for (let c = queue.shift(); c !== undefined; c = queue.shift()) {
+        const p = await fetchPrice(c, fetcher).catch(() => null);
+        if (p) out[c.id] = p;
       }
     }),
   );

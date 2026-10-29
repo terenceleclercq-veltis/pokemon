@@ -8,6 +8,9 @@ const STATUS_LABEL: Record<Species["status"], string> = {
   choisie: "Choix conservé",
 };
 const TIER_LABEL: Record<Tier, string> = { FA: "Full art", IR: "Illustration Rare", SIR: "Special Illustration Rare" };
+/** Cartes hors français : ajoutées seulement quand l'espèce n'a aucune IR/SIR en français. */
+const LANGUE_LABEL: Record<string, string> = { ja: "Japonaise" };
+const langueOf = (langue: string) => (langue === "fr" ? null : (LANGUE_LABEL[langue] ?? langue.toUpperCase()));
 const TIERS: Tier[] = ["FA", "IR", "SIR"];
 
 let data: Species[] = [];
@@ -59,6 +62,7 @@ interface BuyItem {
   espece: string;
   label: string;
   url: string | null;
+  langue: string;
   trend: number | null;
 }
 
@@ -102,7 +106,7 @@ async function renderBuylist(): Promise<void> {
         it.url
           ? h("a", { href: it.url, target: "_blank", rel: "noopener noreferrer" }, it.label)
           : h("span", {}, `${it.label} (lien inconnu)`),
-        ` · ${it.espece} · ${eur(it.trend)} `,
+        ` · ${it.espece}${langueOf(it.langue) ? ` · ${langueOf(it.langue)}` : ""} · ${eur(it.trend)} `,
         h(
           "button",
           {
@@ -312,7 +316,13 @@ function paint(s: Species, loading: boolean): void {
           h(
             "div",
             { class: "grow" },
-            h("div", {}, c.nom_fr, c.code_cm ? cmCode(c.code_cm, c.cm_label) : null),
+            h(
+              "div",
+              {},
+              c.nom_fr,
+              c.code_cm ? cmCode(c.code_cm, c.cm_label) : null,
+              langueOf(c.langue) ? h("span", { class: "lang" }, langueOf(c.langue)) : null,
+            ),
             h(
               "div",
               { class: "mut" },

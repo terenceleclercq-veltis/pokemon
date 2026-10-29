@@ -101,6 +101,25 @@ test("code Cardmarket affiché et copié pour la recherche", async ({ page, cont
   await expect(link).toHaveAttribute("rel", "noopener noreferrer");
 });
 
+test("carte japonaise : seulement sans IR/SIR française, signalée comme telle", async ({ page }) => {
+  await page.goto("/#q=Paras");
+  await page.locator(".tile", { hasText: "Paras" }).first().click();
+  const dlg = page.getByRole("dialog");
+  const opt = dlg.locator(".opt", { hasText: "s12a 207" });
+  await expect(opt.locator(".lang")).toHaveText("Japonaise");
+  await expect(opt.getByRole("link", { name: "Paras (s12a 207) sur Cardmarket" })).toHaveAttribute(
+    "href",
+    "https://www.cardmarket.com/fr/Pokemon/Products?idProduct=687769",
+  );
+  await dlg.getByRole("button", { name: "Fermer" }).click();
+  // les espèces qui ont une IR/SIR française n'ont aucune carte japonaise
+  await page.getByLabel("Rechercher").fill("Bulbizarre");
+  await expect(page.locator(".tile")).toHaveCount(1);
+  await page.locator(".tile").click();
+  await expect(dlg.getByRole("heading", { name: /Bulbizarre/ })).toBeVisible();
+  await expect(dlg.locator(".lang")).toHaveCount(0);
+});
+
 test("liste d'achat : outil de l'en-tête, liens exacts et « Achetée »", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Liste d'achat" }).click();
