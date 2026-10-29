@@ -120,6 +120,24 @@ test("carte japonaise : seulement sans IR/SIR française, signalée comme telle"
   await expect(dlg.locator(".lang")).toHaveCount(0);
 });
 
+test("cartes de repli : forme admise en IR", async ({ page }) => {
+  await page.goto("/#q=Caninos");
+  await page.locator(".tile", { hasText: "Caninos" }).click();
+  const dlg = page.getByRole("dialog");
+  await expect(dlg.locator(".opt", { hasText: "Caninos de Hisui" })).toBeVisible();
+  await expect(dlg.locator("h3", { hasText: "Illustration Rare" })).toBeVisible();
+  await expect(dlg.locator(".price").first()).toContainText("€");
+});
+
+test("cartes de repli : chromatique signalée, faute d'autre carte", async ({ page }) => {
+  await page.goto("/#q=%23063");
+  await expect(page.locator(".tile")).toHaveCount(1);
+  await page.locator(".tile").click();
+  const dlg = page.getByRole("dialog");
+  await expect(dlg.locator(".opt").first()).toContainText("chromatique, pas full art");
+  await expect(dlg.locator(".price").first()).toContainText("€"); // prix simulés chargés avant la fin du test
+});
+
 test("liste d'achat : outil de l'en-tête, liens exacts et « Achetée »", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Liste d'achat" }).click();

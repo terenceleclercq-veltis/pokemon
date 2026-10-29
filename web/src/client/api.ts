@@ -17,6 +17,8 @@ export interface Card {
   /** Page Cardmarket de la version exacte ; null si idProduct inconnu. */
   cm_url: string | null;
   tier: Tier;
+  /** Catégorie du catalogue (IR, FA_GX, CHR, SHINY…). */
+  categorie: string;
   confiance: string;
   /** « fr », ou autre langue seulement si l'espèce n'a aucune IR/SIR en français. */
   langue: string;
