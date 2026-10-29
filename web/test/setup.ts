@@ -29,6 +29,8 @@ beforeEach(async () => {
       "alert",
     ].map((t) => env.DB.prepare(`DELETE FROM ${t}`)),
     env.DB.prepare("DELETE FROM cards WHERE origine = 'site'"),
+    // relevés TCGdex (image, illustrateur) : repartent de zéro
+    env.DB.prepare("UPDATE cards SET image = NULL, illustrateur = NULL"),
   ]);
   for (const q of SEED) await env.DB.prepare(q).run();
 });

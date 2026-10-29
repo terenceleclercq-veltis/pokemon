@@ -193,12 +193,17 @@ a {
   color: var(--keep);
 }
 
-/* Grille illustrée */
+/* Grille illustrée (liste de boutons) */
 #grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 14px;
+  margin: 0;
   padding: 16px;
+  list-style: none;
+}
+#grid > li {
+  display: flex;
 }
 #empty {
   padding: 0 16px;
@@ -207,6 +212,7 @@ a {
 .tile {
   position: relative;
   display: flex;
+  width: 100%;
   flex-direction: column;
   gap: 1px;
   text-align: left;
@@ -307,8 +313,12 @@ a {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 .slot {
+  width: 100%;
   aspect-ratio: 5 / 7;
   padding: 0;
   overflow: hidden;

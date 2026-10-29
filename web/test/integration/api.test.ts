@@ -541,6 +541,25 @@ describe("versions ajoutées depuis le site", () => {
   });
 });
 
+describe("illustrateur", () => {
+  it("relevé chez TCGdex avec le prix, exposé dans le pokédex ; vide si TCGdex ne le donne pas", async () => {
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.hostname === `${TEAM}.cloudflareaccess.com`) return Response.json(await jwks());
+      const id = decodeURIComponent(url.pathname.split("/").pop() ?? "");
+      return Response.json({
+        ...(id === "sv03.5-166" ? { illustrator: " Yoriyuki Ikegami " } : {}),
+        pricing: { cardmarket: { trend: 40 } },
+      });
+    });
+    await call("/api/species/1/prices");
+    const cards = (await species(1)).cards as { id: string; illustrateur?: string | null }[];
+    expect(cards.find((c) => c.id === "sv03.5-166")?.illustrateur).toBe("Yoriyuki Ikegami");
+    expect(cards.find((c) => c.id === "xy1-141")?.illustrateur).toBe("");
+    expect((await species(2)).cards[0]).toMatchObject({ illustrateur: null }); // pas encore relevé
+  });
+});
+
 describe("guide de prix Cardmarket", () => {
   const feed = (guide: string, trend: number) => ({
     version: 1,
@@ -579,14 +598,38 @@ describe("guide de prix Cardmarket", () => {
 });
 
 describe("cron", () => {
-  it("rafraîchit la liste à surveiller, plus anciens d'abord", async () => {
+  it("relève d'abord les illustrateurs, puis seulement les cartes utiles à rafraîchir", async () => {
     await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-198" } }); // complète : hors surveillance
-    const n = await scheduledRefresh(env);
-    expect(n).toBe(1); // seule Herbizarre (manquante)
+    expect(await scheduledRefresh(env)).toBe(4); // premier passage : illustrateur de chaque carte
+    const left = await env.DB.prepare("SELECT COUNT(*) AS n FROM cards WHERE illustrateur IS NULL").first<{
+      n: number;
+    }>();
+    expect(left?.n).toBe(0);
+    await env.DB.prepare("DELETE FROM price_cache").run();
+    expect(await scheduledRefresh(env)).toBe(1); // ensuite : seule Herbizarre (manquante)
     const ids = (await env.DB.prepare("SELECT card_id FROM price_cache").all<{ card_id: string }>()).results.map(
       (r) => r.card_id,
     );
     expect(ids).toEqual(["sv03.5-167"]);
+  });
+  it("une carte au prix du guide du jour, avec image, n'est pas relevée chez TCGdex", async () => {
+    const now = new Date().toISOString();
+    await env.DB.batch([
+      env.DB.prepare("UPDATE cards SET illustrateur = 'X', image = 'https://assets.tcgdex.net/fr/x/low.webp'"),
+      env.DB.prepare(
+        `INSERT INTO price_cache (card_id, trend, fetched_at, source) SELECT id, 9, ?, 'cardmarket' FROM cards`,
+      ).bind(now),
+    ]);
+    expect(await scheduledRefresh(env)).toBe(0); // espèces manquantes, mais rien à relever
+    const p = await env.DB.prepare("SELECT trend FROM price_cache WHERE card_id = 'sv03.5-167'").first<{
+      trend: number;
+    }>();
+    expect(p?.trend).toBe(9);
+    // guide de plus de 48 h : la carte redevient à relever
+    await env.DB.prepare(
+      "UPDATE price_cache SET fetched_at = '2020-01-01T00:00:00.000Z' WHERE card_id = 'sv03.5-167'",
+    ).run();
+    expect(await scheduledRefresh(env)).toBe(1);
   });
   it("source de prix en panne : aucune écriture, pas d'erreur", async () => {
     vi.restoreAllMocks();

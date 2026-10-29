@@ -46,25 +46,31 @@ export const cardById = (db: D1Database, id: string) =>
   }>();
 
 /**
- * Cartes à surveiller : espèces manquantes, possédées avec version plus rare et sans décision, ou sous alerte de prix.
+ * Cartes à relever chez TCGdex par la tâche planifiée :
+ * - d'abord celles dont l'illustrateur n'est pas encore relevé (une fois par carte) ;
+ * - puis les cartes utiles (espèce manquante, version plus rare sans décision, alerte de prix) qui ont quelque chose
+ *   à rafraîchir : prix absent ou de repli, guide Cardmarket de plus de 48 h, ou image manquante. Une carte au prix
+ *   du guide du jour n'est pas relevée (elle bloquait les suivantes, son prix ne changeant pas).
  * Plus anciens prix d'abord.
  */
-export const staleWatchlist = (db: D1Database, limit: number) =>
+export const staleWatchlist = (db: D1Database, limit: number, now = new Date()) =>
   db
     .prepare(
       `SELECT c.id, c.langue FROM cards c
        LEFT JOIN owned o ON o.species_num = c.species_num
        LEFT JOIN keep k ON k.species_num = c.species_num
        LEFT JOIN price_cache p ON p.card_id = c.id
-       WHERE o.species_num IS NULL
-          OR (k.species_num IS NULL AND
-              (CASE c.tier WHEN 'SIR' THEN 3 WHEN 'IR' THEN 2 ELSE 1 END) >
-              (CASE o.tier WHEN 'SIR' THEN 3 WHEN 'IR' THEN 2 ELSE 1 END))
-          OR c.id IN (SELECT card_id FROM alert)
-       ORDER BY COALESCE(p.fetched_at, '') ASC
-       LIMIT ?`,
+       WHERE c.illustrateur IS NULL
+          OR ((o.species_num IS NULL
+               OR (k.species_num IS NULL AND
+                   (CASE c.tier WHEN 'SIR' THEN 3 WHEN 'IR' THEN 2 ELSE 1 END) >
+                   (CASE o.tier WHEN 'SIR' THEN 3 WHEN 'IR' THEN 2 ELSE 1 END))
+               OR c.id IN (SELECT card_id FROM alert))
+              AND (p.card_id IS NULL OR p.source <> 'cardmarket' OR p.fetched_at < ?2 OR c.image IS NULL))
+       ORDER BY c.illustrateur IS NULL DESC, COALESCE(p.fetched_at, '') ASC
+       LIMIT ?1`,
     )
-    .bind(limit)
+    .bind(limit, new Date(now.getTime() - 48 * 3600 * 1000).toISOString())
     .all<{ id: string; langue: string }>();
 
 export const audit = (db: D1Database, actor: string, action: string, detail?: string | number) =>

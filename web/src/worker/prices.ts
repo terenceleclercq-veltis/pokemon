@@ -12,6 +12,8 @@ export interface LivePrice {
   avg30: number | null;
   updated: string | null;
   image: string | null;
+  /** Illustrateur (« Mitsuhiro Arita ») ; chaîne vide si TCGdex ne le donne pas. */
+  illustrator: string;
 }
 
 /** Prix tel qu'enregistré (guide Cardmarket ou TCGdex), renvoyé au navigateur avec l'image. */
@@ -50,6 +52,7 @@ export async function fetchPrice({ id, langue }: PriceRef, fetcher: typeof fetch
     avg30: cm.avg30 || null,
     updated: cm.updated ?? null,
     image: parsed.data.image ? `${parsed.data.image}/low.webp` : null,
+    illustrator: parsed.data.illustrator ?? "",
   };
 }
 
@@ -93,6 +96,7 @@ export async function refreshPrices(
       )
       .bind(id, day, p.trend, p.low),
     ...(p.image ? [db.prepare("UPDATE cards SET image = ?2 WHERE id = ?1 AND image IS NOT ?2").bind(id, p.image)] : []),
+    db.prepare("UPDATE cards SET illustrateur = ?2 WHERE id = ?1 AND illustrateur IS NOT ?2").bind(id, p.illustrator),
   ]);
   if (stmts.length) await db.batch(stmts);
   if (!cards.length) return {};

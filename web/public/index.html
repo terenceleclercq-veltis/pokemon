@@ -37,7 +37,12 @@
     </header>
     <div class="tools" role="search">
       <label class="sr" for="q">Rechercher</label>
-      <input id="q" type="search" placeholder="Nom (FR ou EN), n°, code « MEW 166 »…" autocomplete="off" />
+      <input
+        id="q"
+        type="search"
+        placeholder="Nom (FR ou EN), n°, code « MEW 166 », illustrateur…"
+        autocomplete="off"
+      />
       <label class="sr" for="filter">Filtrer</label>
       <select id="filter">
         <option value="all">Tout</option>
@@ -121,7 +126,7 @@
       <button type="button" data-view="all:num">Tout le Pokédex</button>
     </nav>
     <main>
-      <div id="grid" role="list" aria-label="Espèces"></div>
+      <ul id="grid" aria-label="Espèces"></ul>
       <p id="empty" hidden>Aucune espèce ne correspond.</p>
       <div id="binder" hidden></div>
     </main>

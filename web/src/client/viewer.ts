@@ -41,6 +41,7 @@ function caption(sl: Slide): Node[] {
     TIER_LABEL[c.tier],
     langueOf(c.langue),
     CATEGORIE_NOTE[c.categorie],
+    c.illustrateur ? `ill. ${c.illustrateur}` : null,
     c.price?.trend != null ? eur(c.price.trend) : null,
   ].filter(Boolean);
   return [

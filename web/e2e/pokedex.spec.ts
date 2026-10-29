@@ -346,6 +346,27 @@ test("fiche : ajouter une version manquante (recherche TCGdex simulée)", async 
   expect(sent).toEqual({ species_num: 7, id: "sv08-200", tier: "SIR" });
 });
 
+test("illustrateur : affiché dans la fiche, un clic cherche ses autres cartes", async ({ page }) => {
+  await page.route("**/api/pokedex", async (route) => {
+    const res = await route.fetch();
+    const dex = (await res.json()) as { species: { num: number; cards: { illustrateur?: string | null }[] }[] };
+    for (const n of [1, 4]) {
+      const card = dex.species.find((s) => s.num === n)?.cards[0];
+      if (card) card.illustrateur = "Kawayoo";
+    }
+    await route.fulfill({ response: res, json: dex });
+  });
+  await page.goto("/#p=1");
+  const dlg = page.locator("#detail");
+  await expect(dlg.locator(".price").first()).toContainText("€");
+  await dlg.getByRole("button", { name: "Kawayoo" }).first().click();
+  await expect(dlg).toBeHidden();
+  await expect(page.getByLabel("Rechercher")).toHaveValue("Kawayoo");
+  await expect(page.locator(".tile")).toHaveCount(2);
+  await expect(page).toHaveURL(/q=Kawayoo/);
+  await expect(page).not.toHaveURL(/p=1/);
+});
+
 test("vue classeur : 17 pages de 9 cases, une case ouvre la fiche", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Classeur" }).click();

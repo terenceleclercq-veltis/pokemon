@@ -32,17 +32,17 @@ function subtitle(s: Species): string {
 
 const MARK: Partial<Record<Species["status"], string>> = { complete: "✓", choisie: "✓", a_verifier: "↑" };
 
+/** Tuile : un bouton (ouvre la fiche) dans un élément de liste, pour garder les deux rôles. */
 function tile(s: Species): HTMLElement {
   const v = visualOf(s);
   const hit = s.cards.some(alertHit);
   const sub = `${subtitle(s)}${hit ? ", alerte de prix atteinte" : ""}`;
   const mark = s.order ? "⏳" : s.cards.length ? MARK[s.status] : undefined;
-  return h(
+  const button = h(
     "button",
     {
       class: `tile ${s.cards.length ? s.status : "none"}${s.order ? " ordered" : ""}`,
       type: "button",
-      role: "listitem",
       "data-num": s.num,
       "aria-label": `${pad(s.num)} ${s.nom_fr}, ${sub}`,
     },
@@ -57,6 +57,7 @@ function tile(s: Species): HTMLElement {
     h("strong", {}, s.nom_fr),
     h("span", { class: "p" }, subtitle(s)),
   );
+  return h("li", {}, button);
 }
 
 export function renderStats(): void {
