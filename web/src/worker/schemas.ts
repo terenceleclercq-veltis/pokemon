@@ -18,7 +18,12 @@ export const speciesParam = z.object({
 });
 export const ownedBody = z.union([z.strictObject({ card_id: cardId, note }), z.strictObject({ tier, note })]);
 export const keepBody = z.strictObject({ note });
-export const wantsQuery = z.object({ tier: z._default(z.enum([...TIERS, "cheapest"]), "cheapest") });
+const wantTier = z._default(z.enum([...TIERS, "cheapest", "sir_ir"]), "cheapest");
+export const wantsQuery = z.object({ tier: wantTier });
+export const buylistQuery = z.object({
+  tier: wantTier,
+  budget: z.optional(z.coerce.number().check(z.gt(0), z.lte(100_000))),
+});
 export const importBody = z.strictObject({
   version: z.literal(1),
   owned: z.array(z.object({ species_num: species, card_id: z.nullable(cardId), tier, note })).check(z.maxLength(151)),

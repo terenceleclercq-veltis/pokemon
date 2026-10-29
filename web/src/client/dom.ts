@@ -9,6 +9,8 @@ const ATTRS = new Set([
   "alt",
   "src",
   "href",
+  "target",
+  "rel",
   "download",
   "loading",
   "width",

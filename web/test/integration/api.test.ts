@@ -9,7 +9,13 @@ interface SpeciesDto {
   status: string;
   higher: string[];
   options: { tier: string; card_id: string }[];
-  cards: { id: string; code_cm: string | null; cm_label: string; price: { trend: number } | null }[];
+  cards: {
+    id: string;
+    code_cm: string | null;
+    cm_label: string;
+    cm_url: string | null;
+    price: { trend: number } | null;
+  }[];
 }
 const pokedex = async () => (await (await call("/api/pokedex")).json<{ species: SpeciesDto[] }>()).species;
 const species = async (n: number) => (await pokedex()).find((s) => s.num === n)!;
@@ -108,6 +114,9 @@ describe("pokédex et cycle de vie d'une espèce", () => {
       "sv03.5-198": "MEW 198",
     });
     expect(cards.find((c) => c.id === "sv03.5-198")?.cm_label).toBe("Florizarre ex (MEW 198)");
+    expect(cards.find((c) => c.id === "sv03.5-166")?.cm_url).toBe(
+      "https://www.cardmarket.com/fr/Pokemon/Products?idProduct=733761",
+    );
   });
   it("prix en direct : met à jour cache et options", async () => {
     const live = await (await call("/api/species/1/prices")).json<Record<string, { trend: number }>>();
@@ -161,6 +170,30 @@ describe("liste d'envies, export/import", () => {
     const txt = await (await call("/api/wants?tier=cheapest")).text();
     expect(txt.split("\n").sort()).toEqual(["1 Bulbasaur Leech Seed 151", "1 Ivysaur Leech Seed Vine Whip"]);
     expect((await call("/api/wants?tier=XX")).status).toBe(400);
+  });
+  it("liste d'achat : SIR sinon IR, triée par prix, dans le budget, avec lien exact", async () => {
+    await call("/api/species/1/prices");
+    await call("/api/species/2/prices");
+    type Buy = { items: { espece: string; label: string; url: string | null; trend: number }[]; total: number };
+    const all = await (await call("/api/buylist?tier=sir_ir")).json<Buy>();
+    expect(all.items.map((i) => [i.espece, i.trend])).toEqual([
+      ["Herbizarre", 20],
+      ["Bulbizarre", 90],
+    ]);
+    expect(all.total).toBe(110);
+    expect(all.items[1]?.label).toBe("Florizarre ex (MEW 198)");
+    const within = await (await call("/api/buylist?tier=sir_ir&budget=50")).json<Buy>();
+    expect(within.items).toEqual([
+      {
+        num: 2,
+        espece: "Herbizarre",
+        label: "Herbizarre (MEW 167)",
+        url: "https://www.cardmarket.com/fr/Pokemon/Products?idProduct=733762",
+        trend: 20,
+      },
+    ]);
+    expect(within.total).toBe(20);
+    expect((await call("/api/buylist?budget=-1")).status).toBe(400);
   });
   it("export puis import (remplacement atomique)", async () => {
     await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } });

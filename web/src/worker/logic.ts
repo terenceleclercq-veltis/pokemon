@@ -82,6 +82,11 @@ export function cardmarketLabel(c: Pick<Card, "nom_fr" | "set_name" | "numero" |
   return `${nom} (${c.code_cm ?? `${c.set_name} ${c.numero}`})`.replace(/[\u0000-\u001f]/g, " ");
 }
 
+/** Page Cardmarket de la version exacte (idProduct) : offres réelles, triées par prix. */
+export function cardmarketUrl(idProduct: number): string {
+  return `https://www.cardmarket.com/fr/Pokemon/Products?idProduct=${idProduct}`;
+}
+
 /**
  * Ligne pour l'import « Deck List » des Wants Cardmarket : nom anglais et attaques, sans crochets
  * (« 1 Tauros Target Together »). Cet import ignore extension et numéro ; sans nom Cardmarket connu,
