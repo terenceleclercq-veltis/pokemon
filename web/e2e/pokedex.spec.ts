@@ -9,12 +9,14 @@ async function mockOutbound(page: Page) {
       body: '<svg xmlns="http://www.w3.org/2000/svg" width="5" height="7"><rect width="5" height="7" fill="#c33"/></svg>',
     }),
   );
+  // pokédex lu une seule fois par test (moins d'appels à l'API locale)
+  let pokedex: Promise<{ species: { num: number; cards: { id: string }[] }[] }> | undefined;
   await page.route("**/api/species/*/prices", async (route) => {
     const num = Number(/species\/(\d+)\//.exec(route.request().url())?.[1]);
-    const r = await page.request.get(`/api/pokedex`);
-    const s = ((await r.json()) as { species: { num: number; cards: { id: string }[] }[] }).species.find(
-      (x) => x.num === num,
-    );
+    pokedex ??= page.request
+      .get(`/api/pokedex`)
+      .then((r) => r.json() as Promise<{ species: { num: number; cards: { id: string }[] }[] }>);
+    const s = (await pokedex).species.find((x) => x.num === num);
     const body = Object.fromEntries(
       (s?.cards ?? []).map((c, i) => [
         c.id,
