@@ -141,7 +141,7 @@ test("visionneuse : grande image, versions suivantes, fermeture", async ({ page 
   await dlg.locator(".thumb").first().click();
   const viewer = page.locator("#viewer");
   await expect(viewer).toBeVisible();
-  await expect(viewer.locator("#v-img")).toHaveAttribute("src", /assets\.tcgdex\.net\/test\/.+\.webp$/);
+  await expect(viewer.locator("#v-img")).toHaveAttribute("src", /assets\.tcgdex\.net\/.+\/high\.webp$/);
   const first = await viewer.locator("#v-cap").textContent();
   await viewer.getByRole("button", { name: "Version suivante" }).click();
   await expect(viewer.locator("#v-cap")).not.toHaveText(first ?? "");
@@ -184,6 +184,19 @@ test("galeries (Galarian Gallery) : IR, et plus de carte japonaise de repli", as
   await expect(opt.locator(".chip.t-IR")).toBeVisible();
   await expect(dlg.locator(".lang")).toHaveCount(0);
   await expect(dlg.locator(".opt", { hasText: "s12a 207" })).toHaveCount(0);
+});
+
+test("image de carte introuvable : illustration du Pokémon dans la grille, « ? » dans la fiche", async ({ page }) => {
+  await page.route(/^https:\/\/(assets\.tcgdex\.net|images\.pokemontcg\.io)\//, (route) =>
+    route.fulfill({ status: 404, body: "" }),
+  );
+  await page.goto("/#q=Paras");
+  const tile = page.locator(".tile", { hasText: "Paras" }).first();
+  await expect(tile.locator(".pic.art img")).toHaveAttribute("src", /dream-world\/46\.svg$/);
+  await tile.click();
+  await expect(page.locator("#detail .opt .ph").first()).toBeVisible();
+  // les 404 simulés sont journalisés par le navigateur : attendus ici
+  consoleErrors = consoleErrors.filter((m) => !m.includes("Failed to load resource"));
 });
 
 test("cartes de repli : forme admise en IR", async ({ page }) => {
