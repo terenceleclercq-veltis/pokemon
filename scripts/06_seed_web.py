@@ -27,10 +27,11 @@ def main():
     rare = lambda rs: {r["numero_pokedex"] for r in rs if TIER.get(r["categorie_fullart"]) in ("IR", "SIR")}
     fr = [r for r in rows if r["existe_en_fr"] == "oui" and r["id_tcgdex_fr"]]
     # Règles de repli, dans l'ordre (décisions de Terence) :
-    # 1. forme (Hisui, Alola, Méga…) seulement si l'espèce n'a aucune IR/SIR de forme normale en français ;
+    # 1. forme (Hisui, Alola, Méga…) : toujours si c'est une IR/SIR (30/10/2026) ; une autre full art de forme
+    #    seulement si l'espèce n'a aucune IR/SIR de forme normale en français ;
     base = [r for r in fr if not r.get("forme") and r["categorie_fullart"] != "SHINY"]
     formes = [r for r in fr if r.get("forme") and r["categorie_fullart"] != "SHINY"
-              and r["numero_pokedex"] not in rare(base)]
+              and (TIER.get(r["categorie_fullart"]) in ("IR", "SIR") or r["numero_pokedex"] not in rare(base))]
     # 2. autre langue (id_tcgdex_autre) seulement si l'espèce n'a aucune IR/SIR en français, formes comprises ;
     autres = [r for r in rows if r.get("langue", "fr") != "fr" and r.get("id_tcgdex_autre")
               and r["numero_pokedex"] not in rare(base + formes)]
