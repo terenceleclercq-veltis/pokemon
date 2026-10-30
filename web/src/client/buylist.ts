@@ -197,6 +197,7 @@ function readOptions(): BuyOptions {
     choice: $as("buy-choice", HTMLSelectElement).value as Choice,
     scope: $as("buy-scope", HTMLSelectElement).value as Scope,
     sort: $as("buy-sort", HTMLSelectElement).value as BuySort,
+    minCard: num("buy-min"),
     maxCard: num("buy-max"),
     budget: num("buy-budget"),
     dealsOnly: $as("buy-deals", HTMLInputElement).checked,
@@ -207,6 +208,7 @@ function writeOptions(o: BuyOptions): void {
   $as("buy-choice", HTMLSelectElement).value = o.choice;
   $as("buy-scope", HTMLSelectElement).value = o.scope;
   $as("buy-sort", HTMLSelectElement).value = o.sort;
+  $as("buy-min", HTMLInputElement).value = o.minCard != null ? String(o.minCard) : "";
   $as("buy-max", HTMLInputElement).value = o.maxCard != null ? String(o.maxCard) : "";
   $as("buy-budget", HTMLInputElement).value = o.budget != null ? String(o.budget) : "";
   $as("buy-deals", HTMLInputElement).checked = o.dealsOnly;
@@ -233,6 +235,7 @@ function save(o: BuyOptions): void {
 function summary(p: ReturnType<typeof buyPlan>, o: BuyOptions): string {
   const parts = [`${p.items.length} carte${p.items.length > 1 ? "s" : ""} · ${eur(p.total)}`];
   if (o.budget != null) parts.push(`budget ${eur(o.budget)}, reste ${eur(Math.max(0, o.budget - p.total))}`);
+  if (p.underCard) parts.push(`${p.underCard} sous ${eur(o.minCard)} par carte`);
   if (p.overCard) parts.push(`${p.overCard} au-dessus de ${eur(o.maxCard)} par carte`);
   if (p.overBudget) parts.push(`${p.overBudget} hors budget`);
   if (p.noPrice) parts.push(`${p.noPrice} sans prix`);

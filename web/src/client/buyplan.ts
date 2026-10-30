@@ -13,6 +13,8 @@ export interface BuyOptions {
   choice: Choice;
   scope: Scope;
   sort: BuySort;
+  /** Prix minimum d'une carte : les moins chères sont écartées. */
+  minCard: number | null;
   /** Prix maximum d'une carte : les plus chères sont écartées. */
   maxCard: number | null;
   /** Budget total : cartes prises dans l'ordre affiché tant que le total tient dedans. */
@@ -25,6 +27,7 @@ export const DEFAULT_OPTIONS: BuyOptions = {
   choice: "objectif",
   scope: "all",
   sort: "asc",
+  minCard: null,
   maxCard: null,
   budget: null,
   dealsOnly: false,
@@ -43,6 +46,8 @@ export interface BuyLine {
 export interface BuyPlan {
   items: BuyLine[];
   total: number;
+  /** Cartes écartées par le prix minimum par carte. */
+  underCard: number;
   /** Cartes écartées par le prix maximum par carte. */
   overCard: number;
   /** Cartes qui ne tiennent plus dans le budget total. */
@@ -55,15 +60,19 @@ const RANK: Record<Tier, number> = { FA: 1, IR: 2, SIR: 3 };
 const price = (c: Card) => c.price?.trend ?? null;
 const cheapest = (cards: Card[]) => [...cards].sort((a, b) => (price(a) ?? Infinity) - (price(b) ?? Infinity))[0];
 
-/** Carte retenue pour une espèce, ou undefined si aucune ne correspond au choix. */
+/**
+ * Carte retenue pour une espèce, ou undefined si aucune ne correspond au choix. La version visée par Terence est
+ * toujours celle proposée, jamais une autre version de l'espèce (une rareté demandée qui n'est pas la sienne écarte
+ * l'espèce).
+ */
 function pick(s: Species, choice: Choice): Card | undefined {
+  const wished = s.wish ? s.cards.find((c) => c.id === s.wish) : undefined;
+  if (wished) return choice === "objectif" || choice === "cheapest" || wished.tier === choice ? wished : undefined;
   if (choice === "objectif") return s.target ? s.cards.find((c) => c.id === s.target) : undefined;
   // amélioration : seulement une rareté au-dessus de la carte possédée
   const floor = s.owned ? RANK[s.owned.tier] : 0;
   const pool = s.cards.filter((c) => !c.excluded && RANK[c.tier] > floor);
-  const cands = choice === "cheapest" ? pool : pool.filter((c) => c.tier === choice);
-  // la version visée par Terence passe avant la moins chère
-  return cands.find((c) => c.id === s.wish) ?? cheapest(cands);
+  return cheapest(choice === "cheapest" ? pool : pool.filter((c) => c.tier === choice));
 }
 
 function inScope(s: Species, scope: Scope): boolean {
@@ -91,13 +100,14 @@ export function buyPlan(species: readonly Species[], o: BuyOptions): BuyPlan {
     return [{ s, card, upgrade: s.status === "a_verifier", trend, off: trend != null && avg ? 1 - trend / avg : null }];
   });
   lines.sort(SORTS[o.sort]);
-  const plan: BuyPlan = { items: [], total: 0, overCard: 0, overBudget: 0, noPrice: 0 };
-  const limited = o.maxCard != null || o.budget != null;
+  const plan: BuyPlan = { items: [], total: 0, underCard: 0, overCard: 0, overBudget: 0, noPrice: 0 };
+  const limited = o.minCard != null || o.maxCard != null || o.budget != null;
   for (const l of lines) {
     if (l.trend == null) {
       if (limited) plan.noPrice++;
       else plan.items.push(l);
-    } else if (o.maxCard != null && l.trend > o.maxCard) plan.overCard++;
+    } else if (o.minCard != null && l.trend < o.minCard) plan.underCard++;
+    else if (o.maxCard != null && l.trend > o.maxCard) plan.overCard++;
     else if (o.budget != null && plan.total + l.trend > o.budget + 1e-9) plan.overBudget++;
     else {
       plan.total += l.trend;

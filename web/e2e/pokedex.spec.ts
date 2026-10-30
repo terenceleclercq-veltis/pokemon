@@ -258,6 +258,10 @@ test("liste d'achat : prix max par carte, budget total, réglages retenus", asyn
   await dlg.getByLabel("Prix max par carte (€)").fill("35");
   await expect(dlg.locator("#buylist ol > li")).toHaveCount(3); // 10, 20, 30 €
   await expect(dlg.locator("#buylist")).toContainText("au-dessus de 35,00 € par carte");
+  await dlg.getByLabel("Prix min par carte (€)").fill("15");
+  await expect(dlg.locator("#buylist ol > li")).toHaveCount(2); // 20, 30 €
+  await expect(dlg.locator("#buylist")).toContainText("1 sous 15,00 € par carte");
+  await dlg.getByLabel("Prix min par carte (€)").fill("");
   await dlg.getByLabel("Prix max par carte (€)").fill("");
   await dlg.getByLabel("Budget total (€)").fill("65");
   await expect(dlg.locator("#buylist ol > li")).toHaveCount(3); // 10 + 20 + 30 = 60

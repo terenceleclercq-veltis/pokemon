@@ -74,9 +74,23 @@ describe("liste d'achat (buyPlan)", () => {
     expect(ids({ choice: "IR" }, DATA)).toEqual(["2-ir", "1-ir", "4-ir"]); // 3 : IR déjà possédée
     expect(ids({ choice: "FA" }, DATA)).toEqual(["1-fa"]);
   });
-  it("la version visée passe avant la moins chère de la rareté", () => {
-    const data = [sp(7, "manquante", [card("7-a", "IR", 5), card("7-b", "IR", 9)], { wish: "7-b" })];
+  it("la version visée est toujours celle proposée, jamais une autre version de l'espèce", () => {
+    const data = [
+      sp(7, "manquante", [card("7-a", "IR", 5), card("7-b", "IR", 9), card("7-s", "SIR", 50)], {
+        wish: "7-b",
+        target: "7-b",
+      }),
+    ];
+    expect(ids({}, data)).toEqual(["7-b"]);
+    expect(ids({ choice: "cheapest" }, data)).toEqual(["7-b"]);
     expect(ids({ choice: "IR" }, data)).toEqual(["7-b"]);
+    expect(ids({ choice: "SIR" }, data)).toEqual([]); // pas de SIR de remplacement
+  });
+  it("prix min par carte : écarte les moins chères, combinable avec le prix max", () => {
+    const p = buyPlan(DATA, { ...DEFAULT_OPTIONS, minCard: 50 });
+    expect(p.items.map((l) => l.card.id)).toEqual(["3-sir", "1-sir"]);
+    expect([p.underCard, p.noPrice]).toEqual([1, 1]);
+    expect(ids({ minCard: 50, maxCard: 70 }, DATA)).toEqual(["3-sir"]);
   });
   it("espèces : sans carte seulement, ou à améliorer seulement", () => {
     expect(ids({ scope: "missing" }, DATA)).toEqual(["2-ir", "1-sir", "4-ir"]);
