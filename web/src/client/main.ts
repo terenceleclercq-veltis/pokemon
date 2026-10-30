@@ -7,7 +7,7 @@ import { initCmImport } from "./cmimport";
 import { closeDetail, initDetail, openDetail, openNum } from "./detail";
 import { $, $as, action, debounce, eur, h, toast } from "./dom";
 import { renderGrid, renderStats, visibleNums } from "./grid";
-import { pushState, readState, replaceState, type Mode, type ViewState } from "./router";
+import { pushState, readState, rememberMode, replaceState, type Mode, type ViewState } from "./router";
 import { initDashboard } from "./stats";
 import { alertHit, store, type Filter, type Sort } from "./state";
 import { initViewer } from "./viewer";
@@ -19,6 +19,7 @@ let pushed = false;
 /** Grille filtrable ou classeur, selon l'affichage choisi. */
 function render(): void {
   const binder = view.v === "classeur";
+  document.body.classList.toggle("binder-mode", binder);
   $("grid").hidden = binder;
   $("binder").hidden = !binder;
   for (const m of ["grille", "classeur"] as Mode[]) $(`v-${m}`).setAttribute("aria-pressed", String(view.v === m));
@@ -107,6 +108,7 @@ function bindTools(): void {
     });
   for (const m of ["grille", "classeur"] as Mode[])
     $(`v-${m}`).addEventListener("click", () => {
+      rememberMode(m);
       setView({ v: m });
     });
   document.addEventListener("click", (e) => {

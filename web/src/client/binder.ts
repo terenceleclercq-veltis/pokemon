@@ -53,7 +53,7 @@ export function renderBinder(): void {
           "h2",
           {},
           `Page ${p}`,
-          h("span", { class: "mut" }, ` · n° ${(p - 1) * 9 + 1}–${Math.min(p * 9, 151)} · ${filled}/${species.length}`),
+          h("span", { class: "mut" }, `n° ${(p - 1) * 9 + 1}–${Math.min(p * 9, 151)} · ${filled}/${species.length}`),
         ),
         h("ul", { class: "slots" }, ...species.map(slot)),
       ),
