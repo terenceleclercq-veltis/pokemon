@@ -100,4 +100,22 @@ describe("liste d'achat (buyPlan)", () => {
     expect(ids({ dealsOnly: true }, DATA)).toEqual(["3-sir", "1-sir"]);
     expect(ids({ sort: "deal" }, DATA).slice(0, 3)).toEqual(["1-sir", "3-sir", "2-ir"]); // −25 %, −14 %, −5 %
   });
+  it("tri par rareté : SIR d'abord, puis prix croissant", () => {
+    expect(ids({ sort: "tier" }, DATA)).toEqual(["3-sir", "1-sir", "2-ir", "4-ir"]);
+  });
+  it("recherche : nom de l'espèce ou de la carte, sans accents ni majuscules", () => {
+    expect(ids({ query: "e2" }, DATA)).toEqual(["2-ir"]);
+    expect(ids({ query: "1-SIR" }, DATA)).toEqual(["1-sir"]);
+    expect(ids({ query: "rien" }, DATA)).toEqual([]);
+  });
+  it("au hasard : même tirage, même ordre ; d'autres tirages, d'autres cartes dans le budget", () => {
+    const many = Array.from({ length: 30 }, (_, i) =>
+      sp(i + 10, "manquante", [card(`c${i}`, "IR", 20 + i)], { target: `c${i}` }),
+    );
+    const pick = (seed: number) => ids({ sort: "random", seed, minCard: 20, budget: 45 }, many);
+    expect(pick(7)).toEqual(pick(7));
+    const seen = new Set(Array.from({ length: 20 }, (_, i) => pick(i + 1).join(",")));
+    expect(seen.size).toBeGreaterThan(5); // les tirages varient
+    for (const s of seen) expect(s.split(",").length).toBeLessThanOrEqual(2); // toujours dans le budget
+  });
 });

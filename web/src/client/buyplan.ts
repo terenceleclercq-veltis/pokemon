@@ -1,13 +1,13 @@
 // Liste d'achat (sans DOM) : quelle carte acheter pour chaque espèce, selon des réglages indépendants.
 // Une seule carte par espèce ; les espèces commandées ou terminées n'y figurent pas.
 import type { Card, Species, Tier } from "./api";
-import { goodDeal } from "./state";
+import { fold, goodDeal } from "./state";
 
 /** Carte retenue par espèce : l'objectif (SIR si elle existe), la moins chère, ou une rareté précise. */
 export type Choice = "objectif" | "cheapest" | Tier;
 /** Espèces : sans carte dans le binder, à améliorer (une version plus rare existe), ou les deux. */
 export type Scope = "all" | "missing" | "upgrades";
-export type BuySort = "asc" | "desc" | "num" | "deal";
+export type BuySort = "asc" | "desc" | "num" | "deal" | "tier" | "random";
 
 export interface BuyOptions {
   choice: Choice;
@@ -21,6 +21,10 @@ export interface BuyOptions {
   budget: number | null;
   /** Seulement les cartes au moins 10 % sous leur moyenne 30 jours. */
   dealsOnly: boolean;
+  /** Recherche dans la liste : nom de l'espèce, de la carte, extension, code Cardmarket, illustrateur. */
+  query: string;
+  /** Tirage du tri « au hasard » : même tirage, même ordre ; un nouveau tirage change l'ordre. */
+  seed: number;
 }
 
 export const DEFAULT_OPTIONS: BuyOptions = {
@@ -31,6 +35,8 @@ export const DEFAULT_OPTIONS: BuyOptions = {
   maxCard: null,
   budget: null,
   dealsOnly: false,
+  query: "",
+  seed: 1,
 };
 
 export interface BuyLine {
@@ -82,24 +88,42 @@ function inScope(s: Species, scope: Scope): boolean {
   return false;
 }
 
-const SORTS: Record<BuySort, (a: BuyLine, b: BuyLine) => number> = {
+/** Nombre pseudo-aléatoire stable pour (tirage, espèce) : l'ordre ne change qu'avec un nouveau tirage. */
+function draw(seed: number, num: number): number {
+  let t = (seed * 2654435761 + num * 40503) >>> 0;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+
+const SORTS: Record<BuySort, (a: BuyLine, b: BuyLine, seed: number) => number> = {
   asc: (a, b) => (a.trend ?? Infinity) - (b.trend ?? Infinity) || a.s.num - b.s.num,
   desc: (a, b) => (b.trend ?? -Infinity) - (a.trend ?? -Infinity) || a.s.num - b.s.num,
   num: (a, b) => a.s.num - b.s.num,
   deal: (a, b) => (b.off ?? -Infinity) - (a.off ?? -Infinity) || a.s.num - b.s.num,
+  tier: (a, b) => RANK[b.card.tier] - RANK[a.card.tier] || SORTS.asc(a, b, 0),
+  random: (a, b, seed) => draw(seed, a.s.num) - draw(seed, b.s.num),
+};
+
+/** Chaque mot de la recherche figure dans l'espèce ou la carte (sans accents ni majuscules). */
+const matchesQuery = (s: Species, c: Card, q: string) => {
+  const text = fold([s.nom_fr, s.nom_en, c.nom_fr, c.set_name, c.cm_label, c.illustrateur ?? ""].join(" "));
+  return q.split(/\s+/).every((w) => text.includes(w));
 };
 
 export function buyPlan(species: readonly Species[], o: BuyOptions): BuyPlan {
+  const q = fold(o.query.trim());
   const lines = species.flatMap((s): BuyLine[] => {
     if (!inScope(s, o.scope)) return [];
     const card = pick(s, o.choice);
     if (!card) return [];
     if (o.dealsOnly && !goodDeal(card)) return [];
+    if (q && !matchesQuery(s, card, q)) return [];
     const trend = price(card);
     const avg = card.price?.avg30;
     return [{ s, card, upgrade: s.status === "a_verifier", trend, off: trend != null && avg ? 1 - trend / avg : null }];
   });
-  lines.sort(SORTS[o.sort]);
+  lines.sort((a, b) => SORTS[o.sort](a, b, o.seed));
   const plan: BuyPlan = { items: [], total: 0, underCard: 0, overCard: 0, overBudget: 0, noPrice: 0 };
   const limited = o.minCard != null || o.maxCard != null || o.budget != null;
   for (const l of lines) {

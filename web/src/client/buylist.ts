@@ -16,6 +16,8 @@ import { cardImg, CATEGORIE_NOTE, langueOf, shortDate, store } from "./state";
 
 /** Réglages retenus d'une visite à l'autre (confort de ce navigateur seulement). */
 const KEY = "pokedex.liste-achat";
+/** Tirage en cours du tri « au hasard » (gardé avec les réglages : la liste ne change pas toute seule). */
+let seed = DEFAULT_OPTIONS.seed;
 let items: BuyLine[] = [];
 let reload: () => Promise<void> = () => Promise.resolve();
 
@@ -201,6 +203,8 @@ function readOptions(): BuyOptions {
     maxCard: num("buy-max"),
     budget: num("buy-budget"),
     dealsOnly: $as("buy-deals", HTMLInputElement).checked,
+    query: $as("buy-q", HTMLInputElement).value,
+    seed,
   };
 }
 
@@ -212,6 +216,8 @@ function writeOptions(o: BuyOptions): void {
   $as("buy-max", HTMLInputElement).value = o.maxCard != null ? String(o.maxCard) : "";
   $as("buy-budget", HTMLInputElement).value = o.budget != null ? String(o.budget) : "";
   $as("buy-deals", HTMLInputElement).checked = o.dealsOnly;
+  $as("buy-q", HTMLInputElement).value = o.query;
+  seed = o.seed;
 }
 
 function saved(): BuyOptions {
@@ -244,6 +250,7 @@ function summary(p: ReturnType<typeof buyPlan>, o: BuyOptions): string {
 
 export function renderBuylist(): void {
   const o = readOptions();
+  $("buy-draw").hidden = o.sort !== "random";
   save(o);
   const plan = buyPlan(store.data, o);
   items = plan.items;
@@ -301,4 +308,8 @@ export function initBuylist(onChange: () => Promise<void>): void {
     });
   });
   $("btn-csv").addEventListener("click", exportCsv);
+  $("buy-draw").addEventListener("click", () => {
+    seed = Math.floor(Math.random() * 2 ** 31) + 1;
+    renderBuylist();
+  });
 }

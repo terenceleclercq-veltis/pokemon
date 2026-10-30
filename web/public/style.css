@@ -1079,3 +1079,9 @@ button.cand .ph {
 p.small {
   font-size: 0.8rem;
 }
+/* Liste d'achat : champ de recherche à taille normale (le style de la barre d'outils l'étire) */
+.buy-form input[type="search"] {
+  flex: none;
+  width: 16em;
+  max-width: 100%;
+}
