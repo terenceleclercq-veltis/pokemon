@@ -9,7 +9,7 @@ import { $, $as, action, debounce, eur, h, toast } from "./dom";
 import { renderGrid, renderStats, visibleNums } from "./grid";
 import { pushState, readState, replaceState, type Mode, type ViewState } from "./router";
 import { initDashboard } from "./stats";
-import { alertHit, store, type Filter, type Sort } from "./state";
+import { alertHit, artImg, store, type Filter, type Sort } from "./state";
 import { initViewer } from "./viewer";
 
 let view: ViewState = readState();
@@ -220,6 +220,27 @@ function bindSettings(): void {
   });
 }
 
+/**
+ * Image de carte qui ne se charge pas (hôte injoignable, image retirée) : l'illustration du Pokémon dans la grille et le
+ * classeur, un « ? » ailleurs, plutôt qu'une image cassée.
+ */
+function bindBrokenImages(): void {
+  document.addEventListener(
+    "error",
+    (e) => {
+      const img = e.target;
+      if (!(img instanceof HTMLImageElement)) return;
+      const num = Number(img.closest<HTMLElement>("#grid [data-num], #binder [data-num]")?.dataset.num);
+      if (num && img.src !== artImg(num)) {
+        img.closest(".pic")?.classList.add("art");
+        img.src = artImg(num);
+      } else img.replaceWith(h("span", { class: "ph" }, "?"));
+    },
+    true,
+  );
+}
+
+bindBrokenImages();
 bindTools();
 bindNavigation();
 bindSettings();

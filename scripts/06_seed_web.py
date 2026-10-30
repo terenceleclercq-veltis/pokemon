@@ -22,11 +22,11 @@ def tier_of(r):
     return TIER.get(r["categorie_fullart"], "FA")
 
 
-def image_ptcg(r):
-    """Image anglaise de pokemontcg.io (même illustration), en attendant celle de TCGdex (absente des galeries,
-    du Coffre étincelant, de Détective Pikachu…) ; remplacée dès que TCGdex en fournit une."""
-    m = re.fullmatch(r"([a-z0-9.]+)-([A-Za-z0-9]+)", r.get("id_ptcg") or "")
-    return f"https://images.pokemontcg.io/{m[1]}/{m[2]}.png" if m and r.get("langue", "fr") == "fr" else ""
+def images():
+    """Image vérifiée de chaque carte (data/images.csv, produit par 10_images.py) : TCGdex en français, sinon la même
+    illustration en anglais (pokemontcg.io) ; une carte absente ou sans image trouvée garde celle de la base."""
+    path = DATA / "images.csv"
+    return {r["id"]: r["image"] for r in csv.DictReader(open(path, encoding="utf-8"))} if path.exists() else {}
 
 
 def q(v):
@@ -41,6 +41,7 @@ def main():
             "ON CONFLICT(num) DO UPDATE SET nom_fr = excluded.nom_fr, nom_en = excluded.nom_en;"
         )
     ids = []
+    image = images()
     rows = list(csv.DictReader(open(DATA / "catalogue_fullart.csv", encoding="utf-8")))
     rare = lambda rs: {r["numero_pokedex"] for r in rs if tier_of(r) in ("IR", "SIR")}
     fr = [r for r in rows if r["existe_en_fr"] == "oui" and r["id_tcgdex_fr"]]
@@ -70,10 +71,14 @@ def main():
             "nom_fr = excluded.nom_fr, set_name = excluded.set_name, numero = excluded.numero, "
             "categorie = excluded.categorie, tier = excluded.tier, confiance = excluded.confiance, "
             "id_product = excluded.id_product, code_cm = excluded.code_cm, nom_cm = excluded.nom_cm, "
-            "langue = excluded.langue, origine = 'catalogue', image = COALESCE(cards.image, excluded.image);" % (
+            "langue = excluded.langue, origine = 'catalogue', "
+            # l'image française de TCGdex posée par le rafraîchissement des prix l'emporte toujours ; sinon l'image
+            # vérifiée remplace une ancienne image de repli (peut-être cassée)
+            "image = CASE WHEN cards.image LIKE 'https://assets.tcgdex.net/fr/%%' THEN cards.image "
+            "ELSE COALESCE(excluded.image, cards.image) END;" % (
                 q(cid), r["numero_pokedex"], q(r["carte_fr"]), q(r["set"]), q(r["numero"]),
                 q(r["categorie_fullart"]), q(tier_of(r)), q(r["confiance"]), prod or "NULL",
-                q(r.get("code_cardmarket")), q(r.get("nom_cardmarket")), q(langue), q(image_ptcg(r))))
+                q(r.get("code_cardmarket")), q(r.get("nom_cardmarket")), q(langue), q(image.get(cid))))
     keep = ",".join(q(i) for i in ids)
     # une carte sortie du catalogue reste si elle est possédée ou dans l'historique des commandes (clés étrangères),
     # ou si elle a été ajoutée depuis le site ; versions visées et écartées suivent la carte (ON DELETE CASCADE).
