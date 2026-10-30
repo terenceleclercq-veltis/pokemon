@@ -339,6 +339,23 @@ describe("achat daté (import de commandes Cardmarket)", () => {
   });
 });
 
+describe("budget mensuel", () => {
+  it("lu, enregistré, supprimé ; compris dans la sauvegarde ; valeurs invalides refusées", async () => {
+    expect(await (await call("/api/budget")).json()).toEqual({ monthly: null, since: null });
+    const put = (json: unknown) => call("/api/budget", { method: "PUT", json });
+    expect((await put({ monthly: 40, since: "2026-08" })).status).toBe(200);
+    expect(await (await call("/api/budget")).json()).toEqual({ monthly: 40, since: "2026-08" });
+    const dump = await (await call("/api/export")).json<{ budget: unknown }>();
+    expect(dump.budget).toEqual({ monthly: 40, since: "2026-08" });
+    expect((await put({ monthly: null, since: "2026-08" })).status).toBe(200);
+    expect((await put({ monthly: -5, since: "2026-08" })).status).toBe(400);
+    expect((await put({ monthly: 5, since: "2026-13" })).status).toBe(400);
+    // restauration de la sauvegarde : le budget revient
+    expect((await call("/api/import", { method: "POST", json: dump })).status).toBe(200);
+    expect(await (await call("/api/budget")).json()).toEqual({ monthly: 40, since: "2026-08" });
+  });
+});
+
 describe("prix payé (« Ma carte »)", () => {
   type Row = { state: string; price_paid: number | null; ordered_at: string; espece: string };
   const purchases = async () => (await (await call("/api/purchases")).json<{ purchases: Row[] }>()).purchases;

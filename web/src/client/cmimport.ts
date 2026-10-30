@@ -138,10 +138,13 @@ function apply(e: Event): void {
 
 export function initCmImport(onChange: () => Promise<void>): void {
   reload = onChange;
-  $("btn-cm-import").addEventListener("click", () => {
-    $as("cm-import", HTMLDialogElement).showModal();
-    $("cm-text").focus();
-  });
+  // boutons « Importer des commandes Cardmarket » (liste d'achat, réglages)
+  for (const b of document.querySelectorAll<HTMLElement>("[data-cm-import]"))
+    b.addEventListener("click", () => {
+      for (const d of document.querySelectorAll<HTMLDialogElement>("dialog[open]")) d.close();
+      $as("cm-import", HTMLDialogElement).showModal();
+      $("cm-text").focus();
+    });
   $("cm-parse").addEventListener("click", analyse);
   $("cm-ship").addEventListener("change", () => {
     if (lines.length) analyse();

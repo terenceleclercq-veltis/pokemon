@@ -10,6 +10,8 @@ import {
   type Choice,
   type Scope,
 } from "./buyplan";
+import { api } from "./api";
+import { availableNow, budgetMonths, type PurchaseLike } from "./budget";
 import { $, $as, action, debounce, eur, h, toast } from "./dom";
 import { closeOrder, order, receivedNow, receptionChecklist } from "./purchase";
 import { cardImg, CATEGORIE_NOTE, langueOf, shortDate, store } from "./state";
@@ -189,6 +191,21 @@ function orders(): HTMLElement | null {
   );
 }
 
+/** Raccourci « Disponible ce mois » : le budget mensuel restant (report compris) devient le budget total. */
+function monthButton(): void {
+  const btn = $("buy-month");
+  btn.hidden = true;
+  if (store.budget.monthly == null) return;
+  action(null, async () => {
+    const { purchases } = (await (await api("/api/purchases")).json()) as { purchases: PurchaseLike[] };
+    const left = availableNow(budgetMonths(store.budget, purchases, new Date()));
+    if (left == null || left <= 0) return;
+    btn.dataset.amount = left.toFixed(2);
+    btn.textContent = `Disponible ce mois : ${eur(left)}`;
+    btn.hidden = false;
+  });
+}
+
 /** Réglages lus dans le formulaire. */
 function readOptions(): BuyOptions {
   const num = (id: string) => {
@@ -293,6 +310,11 @@ export function initBuylist(onChange: () => Promise<void>): void {
   const form = $as("buy-form", HTMLFormElement);
   $("btn-buy").addEventListener("click", () => {
     $as("buy", HTMLDialogElement).showModal();
+    renderBuylist();
+    monthButton();
+  });
+  $("buy-month").addEventListener("click", (e) => {
+    $as("buy-budget", HTMLInputElement).value = (e.currentTarget as HTMLElement).dataset.amount ?? "";
     renderBuylist();
   });
   form.addEventListener("change", renderBuylist);

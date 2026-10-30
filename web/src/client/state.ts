@@ -1,5 +1,6 @@
 // État partagé du client et règles d'affichage (sans DOM) : images, objectif, recherche, tri.
 import type { Card, Species, Tier } from "./api";
+import type { Budget } from "./budget";
 
 export const TIERS_DESC: Tier[] = ["SIR", "IR", "FA"];
 export const TIER_LABEL: Record<Tier, string> = {
@@ -22,7 +23,7 @@ export const CATEGORIE_NOTE: Record<string, string> = {
   SHINY: "Chromatique, pas full art",
 };
 
-export const store: { data: Species[] } = { data: [] };
+export const store: { data: Species[]; budget: Budget } = { data: [], budget: { monthly: null, since: null } };
 export const byNum = (n: number) => store.data.find((s) => s.num === n);
 
 /** Miniature de la carte (TCGdex, ~25 Ko) ; null si TCGdex n'a pas encore d'image. */

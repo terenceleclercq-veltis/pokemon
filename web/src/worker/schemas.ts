@@ -51,6 +51,11 @@ export const paidBody = z.strictObject({
   price_paid: paid,
   date: z.optional(day),
 });
+/** Budget mensuel (avec report du solde d'un mois sur l'autre), à partir d'un mois donné ; null : pas de budget. */
+export const budgetBody = z.strictObject({
+  monthly: z.nullable(z.number().check(z.gt(0), z.lte(100_000))),
+  since: z.string().check(z.regex(/^\d{4}-(0[1-9]|1[0-2])$/)),
+});
 export const purchasePatch = z.strictObject({ state: z.enum(["recue", "annulee"]), price_paid: paid });
 const wantTier = z._default(z.enum([...TIERS, "cheapest", "sir_ir", "objectif"]), "objectif");
 export const wantsQuery = z.object({ tier: wantTier });
@@ -98,6 +103,7 @@ export const importBody = z.strictObject({
       .check(z.maxLength(5000)),
   ),
   cards_site: z.optional(z.array(siteCard).check(z.maxLength(2000))),
+  budget: z.optional(z.nullable(z.lazy(() => budgetBody))),
   alerts: z.optional(
     z
       .array(z.object({ card_id: cardId, max_price: z.number().check(z.gt(0), z.lte(100_000)) }))

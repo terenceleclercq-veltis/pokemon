@@ -1123,3 +1123,152 @@ li.imp .pr {
   align-items: center;
   gap: 10px;
 }
+
+/* Statistiques et réglages : sections en cartes, chiffres clés en tuiles */
+.card-sec {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--bd);
+  border-radius: 12px;
+  background: var(--bg);
+}
+.card-sec > h3 {
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+}
+.card-sec h4 {
+  margin: 14px 0 4px;
+  font-size: 0.95rem;
+}
+.card-sec p {
+  margin: 0 0 8px;
+}
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 0 0 14px;
+}
+.tile-k {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--bd);
+  border-left: 4px solid var(--keep);
+  border-radius: 10px;
+  background: var(--card);
+}
+.tile-k.ok {
+  border-left-color: var(--ok);
+}
+.tile-k.over {
+  border-left-color: var(--miss);
+}
+.tile-k .k {
+  color: var(--mut);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.tile-k strong {
+  font-size: 1.35rem;
+}
+.tile-k .s {
+  color: var(--mut);
+  font-size: 0.8rem;
+}
+strong.big {
+  font-size: 1.3rem;
+}
+.budget-now .meter {
+  height: 10px;
+  margin: 4px 0 8px;
+  border-radius: 5px;
+  background: var(--bd);
+  overflow: hidden;
+}
+.budget-now .fill {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+}
+.budget-now .fill.over {
+  background: var(--miss);
+}
+figure.chart {
+  margin: 8px 0 0;
+}
+svg.spend {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+svg.spend .grid {
+  stroke: var(--bd);
+  stroke-width: 1;
+}
+svg.spend .axis {
+  fill: var(--mut);
+  font-size: 11px;
+}
+svg.spend .axis.now {
+  fill: var(--fg);
+  font-weight: 700;
+}
+svg.spend .sb {
+  fill: var(--keep);
+  opacity: 0.55;
+}
+svg.spend .sb.now {
+  opacity: 1;
+}
+svg.spend .sb.over {
+  fill: var(--miss);
+}
+svg.spend .budget {
+  stroke: var(--ok);
+  stroke-width: 2.5;
+  stroke-dasharray: 5 3;
+}
+svg.spend .val {
+  fill: var(--fg);
+  font-size: 11px;
+  font-weight: 600;
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  color: var(--mut);
+  font-size: 0.8rem;
+}
+.legend .sw {
+  display: inline-block;
+  width: 14px;
+  height: 10px;
+  margin-left: 8px;
+  border-radius: 2px;
+}
+.legend .sw.spent {
+  background: var(--keep);
+}
+.legend .sw.budget {
+  height: 0;
+  border-top: 3px dashed var(--ok);
+}
+.settings .row {
+  align-items: flex-end;
+}
+a.button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid var(--bd);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--fg);
+  text-decoration: none;
+}

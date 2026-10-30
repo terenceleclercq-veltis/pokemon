@@ -15,7 +15,8 @@ améliorer), tri (dont « au hasard » avec nouveau tirage), recherche, prix min
 affaires ; la version visée toujours proposée ; calculée dans le navigateur, réglages retenus.
 Import de commandes Cardmarket (texte collé de la page « Achat #… » : cartes reconnues par leur code, port réparti,
 achats enregistrés). Prix payé et date d'achat dans « Ma carte » (dépenses des statistiques, y compris pour une carte ajoutée par « Je l'ai »).
-Illustrateur de chaque carte (relevé chez TCGdex avec le prix), affiché dans la fiche et la visionneuse : un clic, ou
+Statistiques : chiffres clés, budget mensuel avec report (le non-dépensé passe au mois suivant), graphique des
+dépenses avec le disponible de chaque mois, reste à payer détaillé. Illustrateur de chaque carte (relevé chez TCGdex avec le prix), affiché dans la fiche et la visionneuse : un clic, ou
 une recherche par son nom, montre les espèces dont une carte est de lui.
 
 ## Pile technique et pourquoi

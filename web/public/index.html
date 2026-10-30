@@ -209,6 +209,7 @@
               >Budget total (€)
               <input id="buy-budget" name="budget" type="number" min="1" max="100000" step="0.01" inputmode="decimal" />
             </label>
+            <button id="buy-month" type="button" class="link" hidden></button>
             <label
               >Chercher dans la liste
               <input
@@ -231,7 +232,7 @@
           <div class="row">
             <button id="buy-reset" type="reset">Réinitialiser</button>
             <button id="btn-csv" type="button">Exporter (CSV)</button>
-            <button id="btn-cm-import" type="button">Importer des commandes Cardmarket</button>
+            <button type="button" data-cm-import>Importer des commandes Cardmarket</button>
           </div>
         </form>
         <div id="buylist" aria-live="polite"></div>
@@ -276,37 +277,63 @@
         <h2 id="settings-title">Réglages</h2>
         <button class="icon" type="button" data-close aria-label="Fermer">×</button>
       </div>
-      <div class="sheet-body">
-        <section>
-          <h3>Liste d'envies Cardmarket</h3>
-          <p>
+      <div class="sheet-body settings">
+        <section class="card-sec">
+          <h3>Budget mensuel</h3>
+          <p class="mut">
+            Ce qui n'est pas dépensé un mois est reporté au suivant (pour se permettre une carte plus chère) ; un
+            dépassement se retire du mois suivant. Les dépenses comptent au mois de la commande.
+          </p>
+          <form id="budget-form" class="row">
+            <label
+              >Montant par mois (€)
+              <input id="budget-monthly" type="number" min="1" max="100000" step="0.01" inputmode="decimal" required />
+            </label>
+            <label>À partir de <input id="budget-since" type="month" required /></label>
+            <button type="submit" class="primary">Enregistrer</button>
+            <button id="budget-clear" type="button" class="link">Supprimer le budget</button>
+          </form>
+        </section>
+        <section class="card-sec">
+          <h3>Cardmarket</h3>
+          <p class="mut">Commandes passées : colle le texte de la page « Achat #… » pour les enregistrer en un clic.</p>
+          <button type="button" data-cm-import>Importer des commandes Cardmarket</button>
+          <h4>Liste d'envies</h4>
+          <p class="mut">
             Copie les cartes visées, à coller dans Cardmarket → Wants → « Ajouter une Deck List ». Ensuite, régler
             langue et état minimum, et vérifier l'extension de chaque souhait : l'import ne distingue pas les versions.
           </p>
-          <label class="sr" for="wants-tier">Rareté</label>
-          <select id="wants-tier">
-            <option value="objectif">Objectif : SIR si elle existe</option>
-            <option value="cheapest">La moins chère</option>
-            <option value="SIR">SIR</option>
-            <option value="IR">IR</option>
-            <option value="FA">Full art</option>
-          </select>
-          <button id="btn-wants" type="button">Copier</button>
+          <div class="row">
+            <label
+              >Cartes
+              <select id="wants-tier">
+                <option value="objectif">Objectif : SIR si elle existe</option>
+                <option value="cheapest">La moins chère</option>
+                <option value="SIR">SIR</option>
+                <option value="IR">IR</option>
+                <option value="FA">Full art</option>
+              </select>
+            </label>
+            <button id="btn-wants" type="button">Copier</button>
+          </div>
         </section>
-        <section>
-          <h3>Placeholders de binder</h3>
-          <p>
-            Fiches à imprimer (format carte, illustration du Pokémon, 9 par feuille A4) pour réserver la place des
-            cartes à acheter.
+        <section class="card-sec">
+          <h3>Impression</h3>
+          <p class="mut">
+            Placeholders de binder : fiches format carte (9 par feuille A4) avec emplacement, carte visée et QR code
+            vers l'offre, pour réserver la place des cartes à acheter.
           </p>
-          <a href="/placeholders.html" target="_blank" rel="noopener">Ouvrir la page d'impression ↗</a>
+          <a class="button" href="/placeholders.html" target="_blank" rel="noopener">Ouvrir la page d'impression ↗</a>
         </section>
-        <section>
+        <section class="card-sec">
           <h3>Sauvegarde</h3>
-          <button id="btn-export" type="button">Exporter (JSON)</button>
-          <label class="file"
-            >Importer (remplace tout)<input id="file-import" type="file" accept="application/json"
-          /></label>
+          <p class="mut">Tout le binder, les achats, les alertes et le budget dans un fichier JSON.</p>
+          <div class="row">
+            <button id="btn-export" type="button">Exporter (JSON)</button>
+            <label class="file"
+              >Importer (remplace tout)<input id="file-import" type="file" accept="application/json"
+            /></label>
+          </div>
         </section>
       </div>
     </dialog>
