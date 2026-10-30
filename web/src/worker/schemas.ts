@@ -31,11 +31,14 @@ export const cardParam = z.object({ id: cardId });
 export const wishBody = z.strictObject({ card_id: cardId });
 export const excludeBody = z.strictObject({ reason: note });
 /** Nouvelle commande ; `received` : achat déjà en main (boutique) -> directement au binder. */
+const day = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/));
 export const purchaseBody = z.strictObject({
   card_id: cardId,
   price_paid: paid,
   note,
   received: z.optional(z.boolean()),
+  /** Date de la commande (import Cardmarket), aujourd'hui sinon. */
+  date: z.optional(day),
 });
 export const purchaseParam = z.object({
   id: z.pipe(
@@ -46,7 +49,7 @@ export const purchaseParam = z.object({
 /** Prix payé pour la carte possédée (« Ma carte ») ; date d'achat facultative (aujourd'hui sinon). */
 export const paidBody = z.strictObject({
   price_paid: paid,
-  date: z.optional(z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/))),
+  date: z.optional(day),
 });
 export const purchasePatch = z.strictObject({ state: z.enum(["recue", "annulee"]), price_paid: paid });
 const wantTier = z._default(z.enum([...TIERS, "cheapest", "sir_ir", "objectif"]), "objectif");

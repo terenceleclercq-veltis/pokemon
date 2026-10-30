@@ -504,7 +504,7 @@ app.post("/api/purchases", async (c) => {
     .bind(card.species_num)
     .first();
   if (pending) throw fail(409, "commande déjà en cours pour cette espèce");
-  const now = new Date().toISOString();
+  const now = body.date ? `${body.date}T12:00:00.000Z` : new Date().toISOString();
   const received = body.received === true;
   await c.env.DB.batch([
     c.env.DB.prepare(

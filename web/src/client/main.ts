@@ -1,7 +1,8 @@
 // Point d'entrée : chargement, outils de la grille, navigation (adresse ↔ fiche), réglages.
 import { api, type Species } from "./api";
 import { renderBinder } from "./binder";
-import { initBuylist } from "./buylist";
+import { initBuylist, renderBuylist } from "./buylist";
+import { initCmImport } from "./cmimport";
 import { closeDetail, initDetail, openDetail, openNum } from "./detail";
 import { $, $as, action, debounce, h, toast } from "./dom";
 import { renderGrid, renderStats, visibleNums } from "./grid";
@@ -195,6 +196,11 @@ bindNavigation();
 bindSettings();
 initViewer();
 initBuylist(load);
+// import de commandes Cardmarket (depuis la liste d'achat) : pokédex rechargé, liste d'achat à jour
+initCmImport(async () => {
+  await load();
+  renderBuylist();
+});
 initDashboard((num) => {
   void openDetail(num);
 });

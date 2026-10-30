@@ -5,5 +5,5 @@
     "types": ["@cloudflare/workers-types", "@cloudflare/vitest-plugin/types"]
   },
   "include": ["src/worker", "test", "worker-configuration.d.ts"],
-  "exclude": ["test/unit/buyplan.test.ts"]
+  "exclude": ["test/unit/buyplan.test.ts", "test/unit/cmorder.test.ts"]
 }
