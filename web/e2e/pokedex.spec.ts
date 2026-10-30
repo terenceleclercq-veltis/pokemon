@@ -227,15 +227,17 @@ test("liste d'achat : objectif, liens exacts et « Achetée »", async ({ page }
   await dlg.getByRole("button", { name: "Réinitialiser" }).click();
   await expect(dlg.getByLabel("Carte retenue")).toHaveValue("objectif");
   // pas de budget : la base E2E n'a pas de prix, et le budget écarte les cartes sans prix
-  const first = dlg.locator("#buylist li").first();
+  // la liste des cartes à acheter, pas la section « En commande » qu'un test parallèle peut faire apparaître au-dessus
+  const items = dlg.locator("#buylist > ol.buylist > li");
+  const first = items.first();
   await expect(first.locator("a")).toHaveAttribute(
     "href",
     /^https:\/\/www\.cardmarket\.com\/fr\/Pokemon\/Products\?idProduct=\d+$/,
   );
-  const before = await dlg.locator("#buylist li").count();
+  const before = await items.count();
   await first.getByRole("button", { name: /achetée$/ }).click();
   await expect(page.locator(".toast")).toContainText("marqué comme acheté");
-  await expect(dlg.locator("#buylist li")).toHaveCount(before - 1);
+  await expect(items).toHaveCount(before - 1);
   // export CSV de la liste affichée
   const dl = page.waitForEvent("download");
   await dlg.getByRole("button", { name: "Exporter (CSV)" }).click();
