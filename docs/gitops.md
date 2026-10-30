@@ -85,7 +85,9 @@ française. Limite : une carte encore absente de TCGdex (ex. Nidorina MEP 101 à
 reste une PR vérifiée à la main.
 
 **Catalogue** : `data/catalogue_fullart.csv` → `scripts/07_codes_cardmarket.py` (code Cardmarket « MEW 166 », depuis
-TCGdex) → `scripts/06_seed_web.py` → `web/seed.sql`. Au premier déploiement d'un environnement (base vide), le pipeline charge `seed.sql`. Ensuite, toute
+TCGdex) → `scripts/10_images.py` (image vérifiée de chaque carte, `data/images.csv` : TCGdex en français, sinon la même
+illustration en anglais sur pokemontcg.io ; seule une URL qui répond est gardée) → `scripts/06_seed_web.py` → `web/seed.sql`.
+Sur le site, une image qui ne se charge pas est remplacée par l'illustration du Pokémon. Au premier déploiement d'un environnement (base vide), le pipeline charge `seed.sql`. Ensuite, toute
 mise à jour du catalogue passe par `catalogue.yml` (sauvegarde D1 préalable), car `seed.sql` retire les cartes qui
 ne sont plus au catalogue, sauf celles possédées, commandées ou ajoutées depuis le site (origine « site »). Une version
 ajoutée depuis le site puis entrée au catalogue redevient une carte du catalogue.

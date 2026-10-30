@@ -27,8 +27,8 @@ export const byNum = (n: number) => store.data.find((s) => s.num === n);
 
 /** Miniature de la carte (TCGdex, ~25 Ko) ; null si TCGdex n'a pas encore d'image. */
 export const cardImg = (c: Card) => {
-  // l'image française de TCGdex passe avant l'image anglaise de repli (pokemontcg.io)
-  const fallback = c.image?.startsWith("https://images.pokemontcg.io/") ?? false;
+  // l'image française de TCGdex passe avant une image de repli (même illustration en anglais : pokemontcg.io)
+  const fallback = c.image != null && !c.image.startsWith("https://assets.tcgdex.net/fr/");
   return (fallback ? c.price?.image : null) ?? c.image ?? c.price?.image ?? null;
 };
 /** Version haute définition (~100 Ko) pour la visionneuse. */
