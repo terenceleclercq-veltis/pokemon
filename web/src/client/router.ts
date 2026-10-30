@@ -25,13 +25,31 @@ const FILTERS: readonly Filter[] = [
 ];
 const SORTS: readonly Sort[] = ["num", "asc", "desc"];
 
+const PREF = "pokedex:affichage";
+/** Affichage préféré (le dernier choisi), mémorisé sur cet appareil : la grille par défaut. */
+export function preferredMode(): Mode {
+  try {
+    return localStorage.getItem(PREF) === "classeur" ? "classeur" : "grille";
+  } catch {
+    return "grille";
+  }
+}
+export function rememberMode(m: Mode): void {
+  try {
+    localStorage.setItem(PREF, m);
+  } catch {
+    // stockage indisponible (navigation privée) : rien à mémoriser
+  }
+}
+
 export function readState(): ViewState {
   const h = new URLSearchParams(location.hash.slice(1));
   const f = h.get("f") as Filter | null;
   const s = h.get("s") as Sort | null;
   const p = Number(h.get("p"));
+  const v = h.get("v");
   return {
-    v: h.get("v") === "classeur" ? "classeur" : "grille",
+    v: v === "classeur" || v === "grille" ? v : preferredMode(),
     q: h.get("q") ?? "",
     f: f && FILTERS.includes(f) ? f : "all",
     s: s && SORTS.includes(s) ? s : "num",
@@ -44,7 +62,8 @@ function toHash(v: ViewState): string {
   if (v.q) h.set("q", v.q);
   if (v.f !== "all") h.set("f", v.f);
   if (v.s !== "num") h.set("s", v.s);
-  if (v.v !== "grille") h.set("v", v.v);
+  // l'affichage n'apparaît dans l'adresse que s'il diffère de celui préféré sur cet appareil
+  if (v.v !== preferredMode()) h.set("v", v.v);
   if (v.p) h.set("p", String(v.p));
   return h.size ? `#${h}` : location.pathname;
 }

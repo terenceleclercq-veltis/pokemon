@@ -63,11 +63,12 @@ function tile(s: Species): HTMLElement {
 export function renderStats(): void {
   const st = stats(store.data);
   const text =
-    `${st.done}/151 complètes · ${st.toBuy} à acheter · ${st.toUpgrade} à améliorer · ` +
+    `${st.toBuy} à acheter · ${st.toUpgrade} à améliorer · ` +
     `${st.ordered ? `${st.ordered} en commande · ` : ""}${st.alerts ? `🔔 ${st.alerts} alerte${st.alerts > 1 ? "s" : ""} · ` : ""}` +
     `${st.none} sans carte · reste ≈ ${eur(st.remaining)}`;
   // n'annonce (aria-live) que les vrais changements
   if ($("progress").textContent !== text) $("progress").textContent = text;
+  $("count-done").textContent = String(st.done);
   $("bar-fill").style.width = `${(st.done / 151) * 100}%`;
   $("bar").setAttribute("aria-valuenow", String(st.done));
 }

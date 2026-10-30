@@ -46,7 +46,8 @@ test.afterEach(async ({ page }) => {
 test("affiche les 151 espèces illustrées et la progression", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".tile")).toHaveCount(151);
-  await expect(page.locator("#progress")).toContainText("/151 complètes");
+  await expect(page.locator(".count")).toContainText("/151 complètes");
+  await expect(page.locator("#progress")).toContainText("à acheter");
   await expect(page.locator(".tile").first()).toContainText("Bulbizarre");
   // chaque tuile a une image : une carte, ou l'illustration du Pokémon
   await expect(page.locator(".tile .pic img")).toHaveCount(151);
@@ -226,15 +227,17 @@ test("liste d'achat : objectif, liens exacts et « Achetée »", async ({ page }
   await dlg.getByRole("button", { name: "Réinitialiser" }).click();
   await expect(dlg.getByLabel("Carte retenue")).toHaveValue("objectif");
   // pas de budget : la base E2E n'a pas de prix, et le budget écarte les cartes sans prix
-  const first = dlg.locator("#buylist li").first();
+  // la liste des cartes à acheter, pas la section « En commande » qu'un test parallèle peut faire apparaître au-dessus
+  const items = dlg.locator("#buylist > ol.buylist > li");
+  const first = items.first();
   await expect(first.locator("a")).toHaveAttribute(
     "href",
     /^https:\/\/www\.cardmarket\.com\/fr\/Pokemon\/Products\?idProduct=\d+$/,
   );
-  const before = await dlg.locator("#buylist li").count();
+  const before = await items.count();
   await first.getByRole("button", { name: /achetée$/ }).click();
   await expect(page.locator(".toast")).toContainText("marqué comme acheté");
-  await expect(dlg.locator("#buylist li")).toHaveCount(before - 1);
+  await expect(items).toHaveCount(before - 1);
   // export CSV de la liste affichée
   const dl = page.waitForEvent("download");
   await dlg.getByRole("button", { name: "Exporter (CSV)" }).click();
@@ -495,8 +498,11 @@ test("illustrateur : affiché dans la fiche, un clic cherche ses autres cartes",
 test("vue classeur : 17 pages de 9 cases, une case ouvre la fiche", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Classeur" }).click();
-  await expect(page).toHaveURL(/v=classeur/);
   await expect(page.locator("#binder .page")).toHaveCount(17);
+  // affichage mémorisé : le classeur revient au rechargement, la grille reste accessible par un lien
+  await page.reload();
+  await expect(page.locator("#binder .page")).toHaveCount(17);
+  await expect(page.locator("#filter")).toBeHidden();
   await expect(page.locator("#binder .slot")).toHaveCount(151);
   await expect(page.locator("#grid")).toBeHidden();
   await page.locator("#binder .slot").nth(24).click();
@@ -506,6 +512,8 @@ test("vue classeur : 17 pages de 9 cases, une case ouvre la fiche", async ({ pag
   await page.locator("#detail").getByRole("button", { name: "Fermer" }).click();
   await page.getByRole("button", { name: "Grille" }).click();
   await expect(page.locator("#grid")).toBeVisible();
+  await page.goto("/#v=classeur");
+  await expect(page.locator("#binder")).toBeVisible();
 });
 
 test("statistiques et budget mensuel : chiffres clés, dépenses, reste à payer", async ({ page }) => {

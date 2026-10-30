@@ -14,27 +14,126 @@
     <script type="module" src="/app.js"></script>
   </head>
   <body>
-    <a class="skip" href="#grid">Aller à la grille</a>
-    <header class="top">
-      <h1>Pokédex Kanto <small>full art</small></h1>
-      <div class="seg" role="group" aria-label="Affichage">
-        <button id="v-grille" type="button" aria-pressed="true">Grille</button>
-        <button id="v-classeur" type="button" aria-pressed="false">Classeur</button>
+    <a class="skip" href="#main">Aller au contenu</a>
+    <header class="appbar">
+      <div class="brand">
+        <svg class="logo" viewBox="0 0 32 32" width="34" height="34" aria-hidden="true">
+          <circle cx="16" cy="16" r="14.5" fill="#fff" stroke="currentColor" stroke-width="3" />
+          <path d="M1.5 16a14.5 14.5 0 0 1 29 0z" fill="currentColor" />
+          <circle cx="16" cy="16" r="5" fill="#fff" stroke="currentColor" stroke-width="3" />
+        </svg>
+        <h1>Pokédex Kanto <small>full art</small></h1>
       </div>
-      <p id="progress" aria-live="polite">Chargement…</p>
-      <div
-        id="bar"
-        class="bar"
-        role="progressbar"
-        aria-label="Espèces complètes"
-        aria-valuemin="0"
-        aria-valuemax="151"
-        aria-valuenow="0"
-      >
-        <div id="bar-fill"></div>
+      <!-- icônes : Feather (MIT) ; une seule navigation, en onglets (ordinateur) ou en barre du bas (mobile) -->
+      <nav class="mainnav" aria-label="Navigation principale">
+        <div class="seg" role="group" aria-label="Affichage">
+          <button id="v-classeur" type="button" aria-pressed="false">
+            <svg
+              viewBox="0 0 24 24"
+              width="22"
+              height="22"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+              <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" /></svg
+            ><span class="lbl">Classeur</span>
+          </button>
+          <button id="v-grille" type="button" aria-pressed="true">
+            <svg
+              viewBox="0 0 24 24"
+              width="22"
+              height="22"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="3" y="3" width="7" height="7" />
+              <rect x="14" y="3" width="7" height="7" />
+              <rect x="14" y="14" width="7" height="7" />
+              <rect x="3" y="14" width="7" height="7" /></svg
+            ><span class="lbl">Grille</span>
+          </button>
+        </div>
+        <button id="btn-buy" type="button">
+          <svg
+            viewBox="0 0 24 24"
+            width="22"
+            height="22"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="9" cy="21" r="1" />
+            <circle cx="20" cy="21" r="1" />
+            <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" /></svg
+          ><span class="lbl">Liste d'achat</span>
+        </button>
+        <button id="btn-stats" type="button">
+          <svg
+            viewBox="0 0 24 24"
+            width="22"
+            height="22"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <line x1="18" y1="20" x2="18" y2="10" />
+            <line x1="12" y1="20" x2="12" y2="4" />
+            <line x1="6" y1="20" x2="6" y2="14" /></svg
+          ><span class="lbl">Statistiques</span>
+        </button>
+        <button id="btn-settings" type="button">
+          <svg
+            viewBox="0 0 24 24"
+            width="22"
+            height="22"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="3" />
+            <path
+              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+            /></svg
+          ><span class="lbl">Réglages</span>
+        </button>
+      </nav>
+    </header>
+    <section class="summary" aria-label="Progression">
+      <p class="count"><strong id="count-done">–</strong><span>/151 complètes</span></p>
+      <div class="sum-main">
+        <p id="progress" aria-live="polite">Chargement…</p>
+        <div
+          id="bar"
+          class="bar"
+          role="progressbar"
+          aria-label="Espèces complètes"
+          aria-valuemin="0"
+          aria-valuemax="151"
+          aria-valuenow="0"
+        >
+          <div id="bar-fill"></div>
+        </div>
       </div>
       <p id="offline" class="offline" role="status" hidden></p>
-    </header>
+    </section>
     <div class="tools" role="search">
       <label class="sr" for="q">Rechercher</label>
       <input
@@ -44,7 +143,7 @@
         autocomplete="off"
       />
       <label class="sr" for="filter">Filtrer</label>
-      <select id="filter">
+      <select id="filter" class="grid-only">
         <option value="all">Tout</option>
         <option value="manquante">À acheter</option>
         <option value="a_verifier">À améliorer (SIR dispo)</option>
@@ -55,69 +154,13 @@
         <option value="none">Sans carte</option>
       </select>
       <label class="sr" for="sort">Trier</label>
-      <select id="sort">
+      <select id="sort" class="grid-only">
         <option value="num">Ordre du Pokédex</option>
         <option value="asc">Prix croissant</option>
         <option value="desc">Prix décroissant</option>
       </select>
-      <!-- icônes : Feather (MIT) -->
-      <button id="btn-stats" type="button">
-        <svg
-          viewBox="0 0 24 24"
-          width="20"
-          height="20"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <line x1="18" y1="20" x2="18" y2="10" />
-          <line x1="12" y1="20" x2="12" y2="4" />
-          <line x1="6" y1="20" x2="6" y2="14" />
-        </svg>
-        <span class="lbl">Statistiques</span>
-      </button>
-      <button id="btn-buy" type="button">
-        <svg
-          viewBox="0 0 24 24"
-          width="20"
-          height="20"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <circle cx="9" cy="21" r="1" />
-          <circle cx="20" cy="21" r="1" />
-          <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
-        </svg>
-        <span class="lbl">Liste d'achat</span>
-      </button>
-      <button id="btn-settings" type="button">
-        <svg
-          viewBox="0 0 24 24"
-          width="20"
-          height="20"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <circle cx="12" cy="12" r="3" />
-          <path
-            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
-          />
-        </svg>
-        <span class="lbl">Réglages</span>
-      </button>
     </div>
-    <nav id="quick" class="quick" aria-label="Vues rapides">
+    <nav id="quick" class="quick grid-only" aria-label="Vues rapides">
       <button type="button" data-view="manquante:asc">La moins chère à acheter</button>
       <button type="button" data-view="manquante:desc">La plus chère à acheter</button>
       <button type="button" data-view="a_verifier:asc">À améliorer</button>
@@ -125,7 +168,7 @@
       <button type="button" data-view="none:num">Sans carte</button>
       <button type="button" data-view="all:num">Tout le Pokédex</button>
     </nav>
-    <main>
+    <main id="main">
       <ul id="grid" aria-label="Espèces"></ul>
       <p id="empty" hidden>Aucune espèce ne correspond.</p>
       <div id="binder" hidden></div>
