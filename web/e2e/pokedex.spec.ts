@@ -270,6 +270,25 @@ test("liste d'achat : prix max par carte, budget total, réglages retenus", asyn
   // prix décroissant : les plus chères d'abord, en sautant celles qui ne tiennent plus (ici 60 €, seule)
   await expect(dlg.locator("#buylist ol > li")).toHaveCount(1);
   await expect(dlg.locator("#buylist ol > li input")).toHaveValue("60.00");
+  // au hasard : un nouveau tirage propose d'autres cartes dans les mêmes limites
+  await dlg.getByLabel("Tri").selectOption("random");
+  await dlg.getByLabel("Budget total (€)").fill("200");
+  const first = await dlg.locator("#buylist ol > li a").allTextContents();
+  let other = first;
+  for (let i = 0; i < 5 && other.join() === first.join(); i++) {
+    await dlg.getByRole("button", { name: "🎲 Nouveau tirage" }).click();
+    other = await dlg.locator("#buylist ol > li a").allTextContents();
+  }
+  expect(other.join()).not.toBe(first.join());
+  // recherche dans la liste
+  await dlg.getByLabel("Tri").selectOption("asc");
+  await dlg.getByLabel("Budget total (€)").fill("");
+  const name = (await dlg.locator("#buylist ol > li a").first().textContent()) ?? "";
+  await dlg.getByLabel("Chercher dans la liste").fill(name.split(" (")[0] ?? "");
+  await expect(dlg.locator("#buylist ol > li").first()).toContainText(name);
+  await dlg.getByLabel("Chercher dans la liste").fill("");
+  await dlg.getByLabel("Budget total (€)").fill("65");
+  await expect(dlg.locator("#buylist")).toContainText("reste 5,00 €"); // réglages enregistrés
   // réglages retenus d'une visite à l'autre
   await page.reload();
   await page.getByRole("button", { name: "Liste d'achat" }).click();
