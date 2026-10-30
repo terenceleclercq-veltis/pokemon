@@ -5,12 +5,14 @@ test.use({ serviceWorkers: "allow" });
 
 test("hors ligne : la grille reste consultable, avec la date des données", async ({ page, context }) => {
   // images simulées (aussi pour les requêtes du service worker, interceptées au niveau du contexte)
-  await context.route(/^https:\/\/(raw\.githubusercontent\.com|assets\.tcgdex\.net)\//, (route) =>
-    route.fulfill({
-      contentType: "image/svg+xml",
-      headers: { "Access-Control-Allow-Origin": "*" },
-      body: '<svg xmlns="http://www.w3.org/2000/svg" width="5" height="7"><rect width="5" height="7" fill="#c33"/></svg>',
-    }),
+  await context.route(
+    /^https:\/\/(raw\.githubusercontent\.com|assets\.tcgdex\.net|images\.pokemontcg\.io)\//,
+    (route) =>
+      route.fulfill({
+        contentType: "image/svg+xml",
+        headers: { "Access-Control-Allow-Origin": "*" },
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="5" height="7"><rect width="5" height="7" fill="#c33"/></svg>',
+      }),
   );
   await page.goto("/");
   await expect(page.locator(".tile")).toHaveCount(151);

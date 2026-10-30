@@ -4,11 +4,29 @@ Idempotent et non destructif : upsert des espèces et cartes ; suppression uniqu
 sorties du catalogue, ni possédées, ni commandées, ni ajoutées depuis le site.
 """
 import csv
+import re
 
 from common import DATA, ROOT
 
 # promo au style IR = IR ; AR/SAR (japonais) = IR/SIR ; le reste (UR_ex, FA_*, TG, GG, CHR, SHINY*) = FA
 TIER = {"IR": "IR", "SIR": "SIR", "PROMO_IR": "IR", "AR": "IR", "SAR": "SIR"}
+# Galeries (Trainer Gallery « TG », Galarian Gallery « GG ») : illustration pleine carte du Pokémon dans son décor, la
+# même que l'Art Rare japonaise (ex. Métamorph CRZ GG22 = s12a 197 AR) -> IR ; les V/VMAX/VSTAR/GX des galeries
+# restent des full arts.
+GALERIE_V = re.compile(r"\b(V|VMAX|VSTAR|GX|EX|ex)$")
+
+
+def tier_of(r):
+    if r["categorie_fullart"] in ("TG", "GG") and not GALERIE_V.search(r["carte_en"] or r["carte_fr"]):
+        return "IR"
+    return TIER.get(r["categorie_fullart"], "FA")
+
+
+def image_ptcg(r):
+    """Image anglaise de pokemontcg.io (même illustration), en attendant celle de TCGdex (absente des galeries,
+    du Coffre étincelant, de Détective Pikachu…) ; remplacée dès que TCGdex en fournit une."""
+    m = re.fullmatch(r"([a-z0-9.]+)-([A-Za-z0-9]+)", r.get("id_ptcg") or "")
+    return f"https://images.pokemontcg.io/{m[1]}/{m[2]}.png" if m and r.get("langue", "fr") == "fr" else ""
 
 
 def q(v):
@@ -24,14 +42,14 @@ def main():
         )
     ids = []
     rows = list(csv.DictReader(open(DATA / "catalogue_fullart.csv", encoding="utf-8")))
-    rare = lambda rs: {r["numero_pokedex"] for r in rs if TIER.get(r["categorie_fullart"]) in ("IR", "SIR")}
+    rare = lambda rs: {r["numero_pokedex"] for r in rs if tier_of(r) in ("IR", "SIR")}
     fr = [r for r in rows if r["existe_en_fr"] == "oui" and r["id_tcgdex_fr"]]
     # Règles de repli, dans l'ordre (décisions de Terence) :
     # 1. forme (Hisui, Alola, Méga…) : toujours si c'est une IR/SIR (30/10/2026) ; une autre full art de forme
     #    seulement si l'espèce n'a aucune IR/SIR de forme normale en français ;
     base = [r for r in fr if not r.get("forme") and r["categorie_fullart"] != "SHINY"]
     formes = [r for r in fr if r.get("forme") and r["categorie_fullart"] != "SHINY"
-              and (TIER.get(r["categorie_fullart"]) in ("IR", "SIR") or r["numero_pokedex"] not in rare(base))]
+              and (tier_of(r) in ("IR", "SIR") or r["numero_pokedex"] not in rare(base))]
     # 2. autre langue (id_tcgdex_autre) seulement si l'espèce n'a aucune IR/SIR en français, formes comprises ;
     autres = [r for r in rows if r.get("langue", "fr") != "fr" and r.get("id_tcgdex_autre")
               and r["numero_pokedex"] not in rare(base + formes)]
@@ -47,14 +65,15 @@ def main():
         prod = r["url_cardmarket"].rsplit("=", 1)[-1] if r["url_cardmarket"] else ""
         out.append(
             "INSERT INTO cards (id, species_num, nom_fr, set_name, numero, categorie, tier, confiance, id_product, code_cm, nom_cm, "
-            "langue) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(id) DO UPDATE SET species_num = excluded.species_num, "
+            "langue, image) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(id) DO UPDATE SET "
+            "species_num = excluded.species_num, "
             "nom_fr = excluded.nom_fr, set_name = excluded.set_name, numero = excluded.numero, "
             "categorie = excluded.categorie, tier = excluded.tier, confiance = excluded.confiance, "
             "id_product = excluded.id_product, code_cm = excluded.code_cm, nom_cm = excluded.nom_cm, "
-            "langue = excluded.langue, origine = 'catalogue';" % (
+            "langue = excluded.langue, origine = 'catalogue', image = COALESCE(cards.image, excluded.image);" % (
                 q(cid), r["numero_pokedex"], q(r["carte_fr"]), q(r["set"]), q(r["numero"]),
-                q(r["categorie_fullart"]), q(TIER.get(r["categorie_fullart"], "FA")), q(r["confiance"]), prod or "NULL",
-                q(r.get("code_cardmarket")), q(r.get("nom_cardmarket")), q(langue)))
+                q(r["categorie_fullart"]), q(tier_of(r)), q(r["confiance"]), prod or "NULL",
+                q(r.get("code_cardmarket")), q(r.get("nom_cardmarket")), q(langue), q(image_ptcg(r))))
     keep = ",".join(q(i) for i in ids)
     # une carte sortie du catalogue reste si elle est possédée ou dans l'historique des commandes (clés étrangères),
     # ou si elle a été ajoutée depuis le site ; versions visées et écartées suivent la carte (ON DELETE CASCADE).
