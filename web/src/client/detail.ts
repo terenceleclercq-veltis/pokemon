@@ -265,8 +265,9 @@ function priceBlock(s: Species, c: Card): HTMLElement {
               onclick: (e: Event) => {
                 write(e.currentTarget, async () => {
                   await api(`/api/species/${s.num}/owned`, { method: "PUT", json: { card_id: c.id } });
-                  toast(`${s.nom_fr} ajouté au binder.`);
+                  toast(`${s.nom_fr} ajouté au binder. Indique le prix payé pour tes dépenses.`);
                   await refresh(s.num);
+                  askPaid();
                 });
               },
             },
@@ -361,7 +362,15 @@ function orderBlock(s: Species): HTMLElement | null {
   );
 }
 
-/** Ma carte : note, état, gradation, doubles (enregistrés avec « Enregistrer »). */
+/** Après « Je l'ai » : ouvre « Ma carte » sur le prix payé. */
+function askPaid(): void {
+  const box = $("detail-body").querySelector<HTMLDetailsElement>("details.mycard");
+  if (!box) return;
+  box.open = true;
+  box.querySelector<HTMLInputElement>('input[name="paid"]')?.focus();
+}
+
+/** Ma carte : prix payé, date d'achat, note, état, gradation, doubles (enregistrés avec « Enregistrer »). */
 function myCard(s: Species): HTMLElement | null {
   const o = s.owned;
   if (!o) return null;
@@ -387,7 +396,33 @@ function myCard(s: Species): HTMLElement | null {
     placeholder: "PSA 10",
   });
   const doubles = h("input", { type: "number", name: "doubles", min: "0", max: "99", value: String(o.doubles ?? 0) });
-  const resume = [o.condition, o.grade, o.doubles ? `${o.doubles} double${o.doubles > 1 ? "s" : ""}` : null]
+  // prix payé : seulement pour une carte du catalogue (il alimente les dépenses des statistiques)
+  const paid = o.card_id
+    ? h("input", {
+        type: "number",
+        name: "paid",
+        min: "0",
+        max: "100000",
+        step: "0.01",
+        inputmode: "decimal",
+        value: o.paid != null ? String(o.paid) : "",
+        placeholder: "€",
+      })
+    : null;
+  const date = o.card_id
+    ? h("input", {
+        type: "date",
+        name: "bought",
+        value: (o.bought_at ?? new Date().toISOString()).slice(0, 10),
+        max: new Date().toISOString().slice(0, 10),
+      })
+    : null;
+  const resume = [
+    o.paid != null ? eur(o.paid) : null,
+    o.condition,
+    o.grade,
+    o.doubles ? `${o.doubles} double${o.doubles > 1 ? "s" : ""}` : null,
+  ]
     .filter(Boolean)
     .join(" · ");
   return h(
@@ -397,6 +432,8 @@ function myCard(s: Species): HTMLElement | null {
     h(
       "div",
       { class: "row" },
+      paid ? h("label", {}, "Prix payé (€)", paid) : null,
+      date ? h("label", {}, "Acheté le", date) : null,
       h("label", {}, "État", cond),
       h("label", {}, "Gradée", grade),
       h("label", {}, "Doubles", doubles),
@@ -418,6 +455,11 @@ function myCard(s: Species): HTMLElement | null {
                 doubles: Math.max(0, Math.min(99, Number(doubles.value) || 0)),
               },
             });
+            // prix payé modifié (ou date) : enregistré comme achat reçu de cette carte
+            const p = paid && paid.value !== "" ? Math.round(Number(paid.value) * 100) / 100 : null;
+            const d = date?.value || undefined;
+            if (paid && (p !== (o.paid ?? null) || (d && d !== o.bought_at?.slice(0, 10))))
+              await api(`/api/species/${s.num}/paid`, { method: "PUT", json: { price_paid: p, date: d } });
             toast("Ma carte : enregistré.");
             shut(btn);
             await refresh(s.num);

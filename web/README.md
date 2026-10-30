@@ -10,6 +10,9 @@ carte, prix payé), sauvegarde JSON complète. Vue classeur (17 pages de 9 cases
 imprimables avec emplacement, carte visée et QR code vers l'offre. Versions manquantes ajoutées depuis la fiche
 (recherche TCGdex, rareté choisie, gardées par les mises à jour du catalogue), alertes de prix (cloche sur la tuile, vue
 rapide, annonce au chargement) et consultation hors ligne (service worker : dernières données et images déjà vues).
+Liste d'achat à réglages indépendants : carte retenue (objectif, moins chère, rareté), espèces (sans carte, à
+améliorer), tri, prix max par carte, budget total, bonnes affaires ; calculée dans le navigateur, réglages retenus.
+Prix payé et date d'achat dans « Ma carte » (dépenses des statistiques, y compris pour une carte ajoutée par « Je l'ai »).
 Illustrateur de chaque carte (relevé chez TCGdex avec le prix), affiché dans la fiche et la visionneuse : un clic, ou
 une recherche par son nom, montre les espèces dont une carte est de lui.
 

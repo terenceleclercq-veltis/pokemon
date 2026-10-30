@@ -8,7 +8,7 @@ export interface Species {
 }
 
 export async function loadAll(db: D1Database) {
-  const [sp, cards, owned, keep, prices, wish, excluded, orders, alerts] = await db.batch([
+  const [sp, cards, owned, keep, prices, wish, excluded, orders, alerts, bought] = await db.batch([
     db.prepare("SELECT num, nom_fr, nom_en FROM species ORDER BY num"),
     db.prepare("SELECT * FROM cards ORDER BY species_num, tier, id"),
     db.prepare("SELECT * FROM owned"),
@@ -18,6 +18,10 @@ export async function loadAll(db: D1Database) {
     db.prepare("SELECT card_id FROM excluded"),
     db.prepare("SELECT * FROM purchase WHERE state = 'commandee' ORDER BY ordered_at"),
     db.prepare("SELECT card_id, max_price FROM alert"),
+    db.prepare(
+      `SELECT species_num, card_id, price_paid, COALESCE(received_at, ordered_at) AS at FROM purchase
+       WHERE state = 'recue' ORDER BY at, id`,
+    ),
   ]);
   return {
     species: (sp?.results ?? []) as Species[],
@@ -29,6 +33,12 @@ export async function loadAll(db: D1Database) {
     excluded: (excluded?.results ?? []) as { card_id: string }[],
     orders: (orders?.results ?? []) as Purchase[],
     alerts: (alerts?.results ?? []) as { card_id: string; max_price: number }[],
+    bought: (bought?.results ?? []) as {
+      species_num: number;
+      card_id: string;
+      price_paid: number | null;
+      at: string;
+    }[],
   };
 }
 

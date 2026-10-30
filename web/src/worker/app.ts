@@ -25,9 +25,9 @@ import { refreshPrices } from "./prices";
 import {
   addCardBody,
   alertBody,
-  buylistQuery,
   cardParam,
   detailsBody,
+  paidBody,
   excludeBody,
   importBody,
   keepBody,
@@ -117,6 +117,10 @@ const rateLimit: MiddlewareHandler<AppEnv> = async (c, next) => {
   await next();
 };
 
+/** Prix payé et date d'achat de la carte possédée, s'ils ont été enregistrés pour cette carte. */
+const paidOf = (o: { card_id: string | null }, b?: { card_id: string; price_paid: number | null; at: string }) =>
+  b && b.card_id === o.card_id ? { paid: b.price_paid, bought_at: b.at } : { paid: null, bought_at: null };
+
 async function pokedex(db: D1Database) {
   const all = await loadAll(db);
   const price: Record<string, Price> = Object.fromEntries(all.prices.map((p) => [p.card_id, p]));
@@ -128,6 +132,8 @@ async function pokedex(db: D1Database) {
   const excluded = new Set(all.excluded.map((e) => e.card_id));
   const orders = new Map<number, Purchase>(all.orders.map((o) => [o.species_num, o]));
   const alerts = new Map(all.alerts.map((a) => [a.card_id, a.max_price]));
+  // dernier achat reçu par espèce (prix payé de « Ma carte »)
+  const bought = new Map(all.bought.map((b) => [b.species_num, b]));
   return all.species.map((s) => {
     const cards = bySpecies.get(s.num) ?? [];
     // versions écartées : affichées, mais ignorées pour l'objectif, le statut et les achats
@@ -146,7 +152,7 @@ async function pokedex(db: D1Database) {
       wish: wish.get(s.num) ?? null,
       /** Commande en cours pour cette espèce. */
       order: orders.get(s.num) ?? null,
-      owned: o ?? null,
+      owned: o ? { ...o, ...paidOf(o, bought.get(s.num)) } : null,
       keep: keep.get(s.num) ?? null,
       higher: o ? higherThan(active, o).map((c) => c.id) : [],
       options: TIERS.flatMap((t) => (best[t] ? [{ tier: t, label: TIER_LABEL[t], card_id: best[t].id }] : [])),
@@ -255,6 +261,39 @@ app.put("/api/species/:num/details", async (c) => {
     .run();
   if (!r.meta.changes) throw fail(409, "espèce non possédée");
   await audit(c.env.DB, c.get("user"), "owned.details", num).run();
+  return c.json({ ok: true });
+});
+
+/**
+ * Prix payé pour la carte possédée (dépenses des statistiques) : met à jour son dernier achat reçu, ou enregistre
+ * l'achat s'il n'a pas été fait par la liste d'achat (« Je l'ai »).
+ */
+app.put("/api/species/:num/paid", async (c) => {
+  const num = speciesNum(c);
+  const b = parse(paidBody, await jsonBody(c));
+  const o = await c.env.DB.prepare("SELECT card_id FROM owned WHERE species_num = ?")
+    .bind(num)
+    .first<{ card_id: string | null }>();
+  if (!o?.card_id) throw fail(409, "aucune carte du catalogue possédée pour cette espèce");
+  const last = await c.env.DB.prepare(
+    `SELECT id FROM purchase WHERE species_num = ?1 AND card_id = ?2 AND state = 'recue'
+     ORDER BY COALESCE(received_at, ordered_at) DESC, id DESC LIMIT 1`,
+  )
+    .bind(num, o.card_id)
+    .first<{ id: number }>();
+  const at = b.date ? `${b.date}T12:00:00.000Z` : new Date().toISOString();
+  await c.env.DB.batch([
+    last
+      ? c.env.DB.prepare(
+          `UPDATE purchase SET price_paid = ?2, ordered_at = COALESCE(?3, ordered_at),
+             received_at = COALESCE(?3, received_at) WHERE id = ?1`,
+        ).bind(last.id, b.price_paid ?? null, b.date ? at : null)
+      : c.env.DB.prepare(
+          `INSERT INTO purchase (species_num, card_id, state, price_paid, ordered_at, received_at)
+           VALUES (?1, ?2, 'recue', ?3, ?4, ?4)`,
+        ).bind(num, o.card_id, b.price_paid ?? null, at),
+    audit(c.env.DB, c.get("user"), "owned.paid", `${num} ${b.price_paid ?? "-"}`),
+  ]);
   return c.json({ ok: true });
 });
 
@@ -529,37 +568,6 @@ app.get("/api/wants", async (c) => {
   const { tier } = parse(wantsQuery, c.req.query());
   const lines = (await pokedex(c.env.DB)).filter((s) => toBuy(s, tier)).flatMap((s) => wanted(s, tier).map(wantsLine));
   return c.text(lines.join("\n"));
-});
-
-/** Liste d'achat : liens vers la version exacte sur Cardmarket, du moins cher au plus cher, dans le budget. */
-app.get("/api/buylist", async (c) => {
-  const { tier, budget } = parse(buylistQuery, c.req.query());
-  const all = (await pokedex(c.env.DB))
-    .filter((s) => toBuy(s, tier))
-    .flatMap((s) => wanted(s, tier).map((x) => ({ ...x, espece: s.nom_fr, upgrade: s.status === "a_verifier" })))
-    .sort(byTrend);
-  let total = 0;
-  const items = [];
-  for (const x of all) {
-    const p = x.price?.trend;
-    if (budget !== undefined && (p == null || total + p > budget)) continue;
-    total += p ?? 0;
-    items.push({
-      num: x.species_num,
-      card_id: x.id,
-      espece: x.espece,
-      label: x.cm_label,
-      url: x.cm_url,
-      langue: x.langue,
-      tier: x.tier,
-      categorie: x.categorie,
-      image: x.image ?? null,
-      /** Remplace une carte déjà possédée d'une rareté inférieure. */
-      upgrade: x.upgrade,
-      trend: p ?? null,
-    });
-  }
-  return c.json({ items, total: Math.round(total * 100) / 100, budget: budget ?? null });
 });
 
 /** Placeholders de binder : une fiche par espèce (manquantes ou toutes). */

@@ -159,24 +159,61 @@
       </div>
       <div class="sheet-body">
         <p class="mut">
-          Cartes visées, de la moins chère à la plus chère, avec un lien vers la version exacte sur Cardmarket (prix
-          tendance, hors port). « Commandée » la met en attente jusqu'à réception ; « Reçue » l'ajoute au binder. Le
-          prix payé est mémorisé et déduit du budget.
+          Une carte par espèce à compléter ou à améliorer, avec un lien vers la version exacte sur Cardmarket (prix
+          tendance, hors port). « Commandée » la met en attente jusqu'à réception ; « Reçue » l'ajoute au binder.
         </p>
-        <div class="row">
-          <label
-            >Cartes
-            <select id="buy-tier">
-              <option value="objectif">Objectif : SIR si elle existe</option>
-              <option value="cheapest">La moins chère</option>
-              <option value="SIR">SIR uniquement</option>
-              <option value="IR">IR uniquement</option>
-              <option value="FA">Full art uniquement</option>
-            </select>
-          </label>
-          <label>Budget (€) <input id="buy-budget" type="number" min="1" max="100000" step="0.01" /></label>
-          <button id="btn-csv" type="button">Exporter (CSV)</button>
-        </div>
+        <form id="buy-form" class="buy-form">
+          <div class="row">
+            <label
+              >Carte retenue
+              <select id="buy-choice" name="choice">
+                <option value="objectif">Objectif (SIR si elle existe)</option>
+                <option value="cheapest">La moins chère</option>
+                <option value="SIR">SIR</option>
+                <option value="IR">IR</option>
+                <option value="FA">Full art</option>
+              </select>
+            </label>
+            <label
+              >Espèces
+              <select id="buy-scope" name="scope">
+                <option value="all">Sans carte et à améliorer</option>
+                <option value="missing">Sans carte seulement</option>
+                <option value="upgrades">À améliorer seulement</option>
+              </select>
+            </label>
+            <label
+              >Tri
+              <select id="buy-sort" name="sort">
+                <option value="asc">Prix croissant</option>
+                <option value="desc">Prix décroissant</option>
+                <option value="num">Ordre du Pokédex</option>
+                <option value="deal">Meilleures affaires</option>
+              </select>
+            </label>
+          </div>
+          <div class="row">
+            <label
+              >Prix max par carte (€)
+              <input id="buy-max" name="maxCard" type="number" min="1" max="100000" step="0.01" inputmode="decimal" />
+            </label>
+            <label
+              >Budget total (€)
+              <input id="buy-budget" name="budget" type="number" min="1" max="100000" step="0.01" inputmode="decimal" />
+            </label>
+            <label class="check"
+              ><input id="buy-deals" name="dealsOnly" type="checkbox" /> Bonnes affaires seulement</label
+            >
+          </div>
+          <p class="mut small">
+            Prix max par carte : écarte chaque carte plus chère. Budget total : prend les cartes dans l'ordre du tri
+            tant que le total tient dedans (en prix croissant, le plus de cartes possible). Les deux se combinent.
+          </p>
+          <div class="row">
+            <button id="buy-reset" type="reset">Réinitialiser</button>
+            <button id="btn-csv" type="button">Exporter (CSV)</button>
+          </div>
+        </form>
         <div id="buylist" aria-live="polite"></div>
       </div>
     </dialog>

@@ -63,6 +63,9 @@ export interface Species {
     condition?: string | null;
     grade?: string | null;
     doubles?: number;
+    /** Prix payé (dernier achat reçu de cette carte), null s'il n'est pas renseigné. */
+    paid?: number | null;
+    bought_at?: string | null;
   } | null;
   keep: { decided_at: string } | null;
   higher: string[];

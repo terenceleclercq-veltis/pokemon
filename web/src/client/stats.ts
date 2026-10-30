@@ -73,7 +73,9 @@ function value(data: Species[]): HTMLElement {
   );
 }
 
-function spending(rows: PurchaseRow[]): HTMLElement {
+function spending(rows: PurchaseRow[], data: Species[]): HTMLElement {
+  // cartes du binder ajoutées par « Je l'ai » sans prix payé : absentes des dépenses
+  const unpriced = data.filter((s) => s.owned?.card_id && s.owned.paid == null);
   const kept = rows.filter((r) => r.state !== "annulee");
   const spent = kept.reduce((t, r) => t + (r.price_paid ?? 0), 0);
   const pending = kept.filter((r) => r.state === "commandee");
@@ -102,6 +104,22 @@ function spending(rows: PurchaseRow[]): HTMLElement {
     kept.length
       ? bars([...months].map(([m, v]) => [label(m), v]))
       : h("p", { class: "mut" }, "Aucun achat enregistré."),
+    unpriced.length
+      ? h(
+          "p",
+          { class: "mut" },
+          `${unpriced.length} carte${unpriced.length > 1 ? "s" : ""} du binder sans prix payé (non comptée${
+            unpriced.length > 1 ? "s" : ""
+          }) : renseigne-le dans « Ma carte » de la fiche. `,
+          ...unpriced
+            .slice(0, 12)
+            .flatMap((x, i) => [
+              i ? ", " : "",
+              h("button", { type: "button", class: "link", "data-num": x.num }, x.nom_fr),
+            ]),
+          unpriced.length > 12 ? "…" : "",
+        )
+      : null,
   );
 }
 
@@ -154,7 +172,7 @@ export async function renderDashboard(): Promise<void> {
       `${st.done}/151 complètes · reste à payer pour l'objectif ≈ `,
       h("strong", {}, eur(st.remaining)),
     ),
-    ...[progress(data), alerts(data), value(data), deals(data), spending(purchases)].filter(
+    ...[progress(data), alerts(data), value(data), deals(data), spending(purchases, data)].filter(
       (x): x is HTMLElement => x !== null,
     ),
   );
