@@ -11,7 +11,7 @@ const SHELL = ["/", "/app.js", "/style.css", "/icon.svg", "/manifest.webmanifest
 /** Fichiers et lectures gardés pour le mode hors ligne (le reste passe directement au réseau). */
 const KEPT = /^\/(app\.js|style\.css|icon\.svg|icon-\d+\.png|manifest\.webmanifest|placeholders\.(html|js|css))$/;
 const API_KEPT = /^\/api\/(pokedex|purchases|species\/\d{1,3}\/history)$/;
-const IMG_HOSTS = new Set(["assets.tcgdex.net", "raw.githubusercontent.com"]);
+const IMG_HOSTS = new Set(["assets.tcgdex.net", "raw.githubusercontent.com", "images.pokemontcg.io"]);
 
 sw.addEventListener("install", (e) => {
   e.waitUntil(

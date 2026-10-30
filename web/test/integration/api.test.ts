@@ -52,6 +52,7 @@ describe("authentification et en-têtes", () => {
       const csp = r.headers.get("Content-Security-Policy") ?? "";
       expect(csp).toContain("default-src 'none'");
       expect(csp).toContain("script-src 'self'");
+      expect(csp).toContain("https://images.pokemontcg.io");
       expect(csp).toContain("frame-ancestors 'none'");
       expect(csp).toContain("require-trusted-types-for 'script'");
       expect(csp).toContain("trusted-types sw");

@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 /** Prix et images simulés : aucune dépendance réseau (TCGdex, GitHub) pendant les tests navigateur. */
 async function mockOutbound(page: Page) {
-  await page.route(/^https:\/\/(raw\.githubusercontent\.com|assets\.tcgdex\.net)\//, (route) =>
+  await page.route(/^https:\/\/(raw\.githubusercontent\.com|assets\.tcgdex\.net|images\.pokemontcg\.io)\//, (route) =>
     route.fulfill({
       contentType: "image/svg+xml",
       body: '<svg xmlns="http://www.w3.org/2000/svg" width="5" height="7"><rect width="5" height="7" fill="#c33"/></svg>',
@@ -173,25 +173,16 @@ test("code Cardmarket affiché et copié pour la recherche", async ({ page, cont
   await expect(link).toHaveAttribute("rel", "noopener noreferrer");
 });
 
-test("carte japonaise : seulement sans IR/SIR française, signalée comme telle", async ({ page }) => {
+test("galeries (Galarian Gallery) : IR, et plus de carte japonaise de repli", async ({ page }) => {
+  // Paras : la Galarian Gallery CRZ GG32 est une IR ; la version japonaise (s12a 207) n'est donc plus proposée
   await page.goto("/#q=Paras");
   await page.locator(".tile", { hasText: "Paras" }).first().click();
   const dlg = page.locator("#detail");
   await expect(dlg.locator(".price").first()).toContainText("€");
-  const opt = dlg.locator(".opt", { hasText: "s12a 207" });
-  await expect(opt.locator(".lang")).toHaveText("Japonaise");
-  await expect(opt.getByRole("link", { name: "Paras (s12a 207) sur Cardmarket" })).toHaveAttribute(
-    "href",
-    "https://www.cardmarket.com/fr/Pokemon/Products?idProduct=687769",
-  );
-  await dlg.getByRole("button", { name: "Fermer" }).click();
-  // les espèces qui ont une IR/SIR française n'ont aucune carte japonaise
-  await page.getByLabel("Rechercher").fill("Bulbizarre");
-  await expect(page.locator(".tile")).toHaveCount(1);
-  await page.locator(".tile").click();
-  await expect(dlg.getByRole("heading", { name: /Bulbizarre/ })).toBeVisible();
+  const opt = dlg.locator(".opt", { hasText: "CRZ GG32" });
+  await expect(opt.locator(".chip.t-IR")).toBeVisible();
   await expect(dlg.locator(".lang")).toHaveCount(0);
-  await expect(dlg.locator(".price").first()).toContainText("€"); // prix simulés servis avant la fin du test
+  await expect(dlg.locator(".opt", { hasText: "s12a 207" })).toHaveCount(0);
 });
 
 test("cartes de repli : forme admise en IR", async ({ page }) => {
