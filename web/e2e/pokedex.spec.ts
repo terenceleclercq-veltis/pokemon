@@ -314,6 +314,49 @@ test("prix payé : « Je l'ai » ouvre « Ma carte », le prix compte dans les d
   await page.request.delete("/api/species/9/owned", { headers: { "X-Requested-With": "pokedex" } });
 });
 
+test("import de commandes Cardmarket : cartes reconnues, port réparti, achats enregistrés", async ({ page }) => {
+  const headers = { "X-Requested-With": "pokedex" };
+  for (const n of [103, 128]) await page.request.delete(`/api/species/${n}/owned`, { headers });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Liste d'achat" }).click();
+  await page.getByRole("button", { name: "Importer des commandes Cardmarket" }).click();
+  const dlg = page.locator("#cm-import");
+  await dlg
+    .getByLabel("Texte des commandes")
+    .fill(
+      [
+        "Achat #1311183713",
+        "Payée: 29.10.2026 15:07",
+        "Valeur de l'article\t10,90 €",
+        "Frais de port\t2,95 €",
+        "Pokémon Cartes (3)",
+        "1 x\tNoadkoko (MEG 135)",
+        "Exeggutor\t#135 MEG NM\t6,50 €",
+        "1 x\tTauros (CRI 096)",
+        "Tauros\t#096 CRI NM\t3,50 €",
+        "1 x\tInconnue (XXX 999)",
+        "\t0,90 €",
+      ].join("\n"),
+    );
+  await dlg.getByRole("button", { name: "Analyser" }).click();
+  await expect(dlg.locator("#cm-result h3")).toContainText("Achat #1311183713 du 29/10/2026");
+  const rows = dlg.locator("#cm-result li");
+  await expect(rows).toHaveCount(3);
+  await expect(rows.nth(0)).toContainText("#103 Noadkoko");
+  await expect(rows.nth(0)).toContainText("8,26 €"); // 6,50 + part du port
+  await expect(rows.nth(2)).toContainText("carte absente du catalogue");
+  await dlg.getByRole("button", { name: "Enregistrer 2 achats" }).click();
+  await expect(page.locator(".toast").last()).toContainText("2 achat(s) enregistré(s).");
+  // pas encore arrivée : commandées, avec le prix payé et la date de la commande
+  const dex = (await (await page.request.get("/api/pokedex")).json()) as {
+    species: { num: number; order: { id: number; price_paid: number; ordered_at: string } | null }[];
+  };
+  const order = dex.species.find((s) => s.num === 103)?.order;
+  expect(order).toMatchObject({ price_paid: 8.26, ordered_at: "2026-10-29T12:00:00.000Z" });
+  for (const s of dex.species.filter((x) => x.order && [103, 128].includes(x.num)))
+    await page.request.patch(`/api/purchases/${s.order!.id}`, { headers, data: { state: "annulee" } });
+});
+
 test("commande : en attente, vérification à réception, puis binder", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Liste d'achat" }).click();

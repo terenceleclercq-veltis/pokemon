@@ -318,6 +318,27 @@ describe("version visée, versions écartées", () => {
   });
 });
 
+describe("achat daté (import de commandes Cardmarket)", () => {
+  it("la date de la commande devient la date de l'achat ; date invalide refusée", async () => {
+    const post = (json: unknown) => call("/api/purchases", { method: "POST", json });
+    expect((await post({ card_id: "sv03.5-167", price_paid: 8.24, date: "2026-10-29", received: true })).status).toBe(
+      201,
+    );
+    const { purchases } = await (
+      await call("/api/purchases")
+    ).json<{
+      purchases: { ordered_at: string; received_at: string | null; state: string }[];
+    }>();
+    expect(purchases[0]).toMatchObject({
+      state: "recue",
+      ordered_at: "2026-10-29T12:00:00.000Z",
+      received_at: "2026-10-29T12:00:00.000Z",
+    });
+    expect((await species(2)).owned).toMatchObject({ card_id: "sv03.5-167", paid: 8.24 });
+    expect((await post({ card_id: "sv03.5-166", date: "29.10.2026" })).status).toBe(400);
+  });
+});
+
 describe("prix payé (« Ma carte »)", () => {
   type Row = { state: string; price_paid: number | null; ordered_at: string; espece: string };
   const purchases = async () => (await (await call("/api/purchases")).json<{ purchases: Row[] }>()).purchases;

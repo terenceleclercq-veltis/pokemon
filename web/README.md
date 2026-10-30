@@ -13,7 +13,8 @@ rapide, annonce au chargement) et consultation hors ligne (service worker : dern
 Liste d'achat à réglages indépendants : carte retenue (objectif, moins chère, rareté), espèces (sans carte, à
 améliorer), tri (dont « au hasard » avec nouveau tirage), recherche, prix min et max par carte, budget total, bonnes
 affaires ; la version visée toujours proposée ; calculée dans le navigateur, réglages retenus.
-Prix payé et date d'achat dans « Ma carte » (dépenses des statistiques, y compris pour une carte ajoutée par « Je l'ai »).
+Import de commandes Cardmarket (texte collé de la page « Achat #… » : cartes reconnues par leur code, port réparti,
+achats enregistrés). Prix payé et date d'achat dans « Ma carte » (dépenses des statistiques, y compris pour une carte ajoutée par « Je l'ai »).
 Illustrateur de chaque carte (relevé chez TCGdex avec le prix), affiché dans la fiche et la visionneuse : un clic, ou
 une recherche par son nom, montre les espèces dont une carte est de lui.
 

@@ -1085,3 +1085,41 @@ p.small {
   width: 16em;
   max-width: 100%;
 }
+
+/* Import de commandes Cardmarket : grande zone de texte, une ligne par carte */
+#cm-import label.wide {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+}
+#cm-import textarea {
+  width: 100%;
+  min-height: 9em;
+  font: inherit;
+  font-size: 0.85rem;
+}
+#cm-result ol {
+  display: grid;
+  gap: 6px;
+  margin: 6px 0;
+  padding: 0;
+  list-style: none;
+}
+li.imp {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+}
+li.imp .grow {
+  flex: 1 1 220px;
+}
+li.imp .pr {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}

@@ -231,6 +231,7 @@
           <div class="row">
             <button id="buy-reset" type="reset">Réinitialiser</button>
             <button id="btn-csv" type="button">Exporter (CSV)</button>
+            <button id="btn-cm-import" type="button">Importer des commandes Cardmarket</button>
           </div>
         </form>
         <div id="buylist" aria-live="polite"></div>
@@ -243,6 +244,31 @@
         <button class="icon" type="button" data-close aria-label="Fermer">×</button>
       </div>
       <div id="stats-body" class="sheet-body" aria-live="polite"></div>
+    </dialog>
+
+    <dialog id="cm-import" class="sheet" aria-labelledby="cm-import-title">
+      <div class="sheet-head">
+        <h2 id="cm-import-title">Importer des commandes Cardmarket</h2>
+        <button class="icon" type="button" data-close aria-label="Fermer">×</button>
+      </div>
+      <div class="sheet-body">
+        <p class="mut">
+          Sur Cardmarket, ouvre une commande (« Achat #… »), sélectionne toute la page et copie-la ici. Tu peux en
+          coller plusieurs à la suite. Les cartes sont reconnues par leur code (« Noadkoko (MEG 135) ») ; rien n'est
+          envoyé à Cardmarket, tes identifiants restent chez eux.
+        </p>
+        <label class="wide"
+          >Texte des commandes
+          <textarea id="cm-text" rows="8" spellcheck="false" placeholder="Achat #1311183717 …"></textarea>
+        </label>
+        <div class="row">
+          <label class="check"
+            ><input id="cm-ship" type="checkbox" checked /> Répartir les frais de port sur les cartes</label
+          >
+          <button id="cm-parse" type="button" class="primary">Analyser</button>
+        </div>
+        <div id="cm-result" aria-live="polite"></div>
+      </div>
     </dialog>
 
     <dialog id="settings" class="sheet" aria-labelledby="settings-title">
