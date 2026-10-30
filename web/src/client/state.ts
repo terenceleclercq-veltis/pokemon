@@ -27,9 +27,16 @@ export const store: { data: Species[]; budget: Budget } = { data: [], budget: { 
 export const byNum = (n: number) => store.data.find((s) => s.num === n);
 
 /** Miniature de la carte (TCGdex, ~25 Ko) ; null si TCGdex n'a pas encore d'image. */
-export const cardImg = (c: Card) => c.image ?? c.price?.image ?? null;
+export const cardImg = (c: Card) => {
+  // l'image française de TCGdex passe avant l'image anglaise de repli (pokemontcg.io)
+  const fallback = c.image?.startsWith("https://images.pokemontcg.io/") ?? false;
+  return (fallback ? c.price?.image : null) ?? c.image ?? c.price?.image ?? null;
+};
 /** Version haute définition (~100 Ko) pour la visionneuse. */
-export const cardImgHigh = (c: Card) => cardImg(c)?.replace(/\/low\.webp$/, "/high.webp") ?? null;
+export const cardImgHigh = (c: Card) =>
+  cardImg(c)
+    ?.replace(/\/low\.webp$/, "/high.webp")
+    .replace(/^(https:\/\/images\.pokemontcg\.io\/.+)\.png$/, "$1_hires.png") ?? null;
 /** Illustration du Pokémon (dépôt public PokéAPI, SVG ~30 Ko), quand aucune carte n'a d'image. */
 export const artImg = (num: number) =>
   `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/dream-world/${num}.svg`;

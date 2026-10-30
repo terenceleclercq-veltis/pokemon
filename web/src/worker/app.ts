@@ -49,7 +49,8 @@ export const CSP = {
   defaultSrc: ["'none'"],
   scriptSrc: ["'self'"],
   styleSrc: ["'self'"],
-  imgSrc: ["'self'", "https://assets.tcgdex.net", "https://raw.githubusercontent.com"],
+  // images.pokemontcg.io : images des cartes que TCGdex n'illustre pas (galeries, Coffre étincelant…)
+  imgSrc: ["'self'", "https://assets.tcgdex.net", "https://raw.githubusercontent.com", "https://images.pokemontcg.io"],
   connectSrc: ["'self'"],
   manifestSrc: ["'self'"],
   baseUri: ["'none'"],
