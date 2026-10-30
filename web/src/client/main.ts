@@ -1,10 +1,11 @@
 // Point d'entrée : chargement, outils de la grille, navigation (adresse ↔ fiche), réglages.
 import { api, type Species } from "./api";
+import type { Budget } from "./budget";
 import { renderBinder } from "./binder";
 import { initBuylist, renderBuylist } from "./buylist";
 import { initCmImport } from "./cmimport";
 import { closeDetail, initDetail, openDetail, openNum } from "./detail";
-import { $, $as, action, debounce, h, toast } from "./dom";
+import { $, $as, action, debounce, eur, h, toast } from "./dom";
 import { renderGrid, renderStats, visibleNums } from "./grid";
 import { pushState, readState, replaceState, type Mode, type ViewState } from "./router";
 import { initDashboard } from "./stats";
@@ -43,10 +44,16 @@ function showOffline(since: string | null): void {
 }
 
 async function load(): Promise<void> {
-  const res = await api("/api/pokedex");
+  const [res, budget] = await Promise.all([
+    api("/api/pokedex"),
+    api("/api/budget")
+      .then((b) => b.json() as Promise<Budget>)
+      .catch(() => store.budget),
+  ]);
   showOffline(res.headers.get("X-Offline"));
   const r = (await res.json()) as { species: Species[] };
   store.data = r.species;
+  store.budget = budget;
   render();
 }
 
@@ -157,6 +164,28 @@ function bindNavigation(): void {
 function bindSettings(): void {
   $("btn-settings").addEventListener("click", () => {
     $as("settings", HTMLDialogElement).showModal();
+  });
+  // budget mensuel : champs remplis à l'ouverture des réglages
+  $as("settings", HTMLDialogElement).addEventListener("toggle", () => {
+    const b = store.budget;
+    $as("budget-monthly", HTMLInputElement).value = b.monthly != null ? String(b.monthly) : "";
+    $as("budget-since", HTMLInputElement).value = b.since ?? new Date().toISOString().slice(0, 7);
+  });
+  const saveBudget = (monthly: number | null) => {
+    action(null, async () => {
+      const since = $as("budget-since", HTMLInputElement).value || new Date().toISOString().slice(0, 7);
+      await api("/api/budget", { method: "PUT", json: { monthly, since } });
+      store.budget = { monthly, since };
+      toast(monthly ? `Budget : ${eur(monthly)} par mois depuis ${since}.` : "Budget supprimé.");
+    });
+  };
+  $("budget-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    saveBudget(Math.round(Number($as("budget-monthly", HTMLInputElement).value) * 100) / 100 || null);
+  });
+  $("budget-clear").addEventListener("click", () => {
+    saveBudget(null);
+    $as("budget-monthly", HTMLInputElement).value = "";
   });
   $("btn-wants").addEventListener("click", (e) => {
     action(e.currentTarget as HTMLButtonElement, async () => {

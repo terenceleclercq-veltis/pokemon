@@ -26,6 +26,7 @@ import {
   addCardBody,
   alertBody,
   cardParam,
+  budgetBody,
   detailsBody,
   paidBody,
   excludeBody,
@@ -294,6 +295,35 @@ app.put("/api/species/:num/paid", async (c) => {
            VALUES (?1, ?2, 'recue', ?3, ?4, ?4)`,
         ).bind(num, o.card_id, b.price_paid ?? null, at),
     audit(c.env.DB, c.get("user"), "owned.paid", `${num} ${b.price_paid ?? "-"}`),
+  ]);
+  return c.json({ ok: true });
+});
+
+const BUDGET = "budget_mensuel";
+
+/** Budget mensuel : { monthly, since } ; monthly null si aucun budget n'est fixé. */
+async function readBudget(db: D1Database) {
+  const row = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(BUDGET).first<{ value: string }>();
+  if (!row) return null;
+  try {
+    const parsed = budgetBody.safeParse(JSON.parse(row.value));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null; // valeur illisible : comme s'il n'y avait pas de budget
+  }
+}
+
+app.get("/api/budget", async (c) => c.json((await readBudget(c.env.DB)) ?? { monthly: null, since: null }));
+
+app.put("/api/budget", async (c) => {
+  const b = parse(budgetBody, await jsonBody(c));
+  const now = new Date().toISOString();
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)
+       ON CONFLICT(key) DO UPDATE SET value = ?2, updated_at = ?3`,
+    ).bind(BUDGET, JSON.stringify(b), now),
+    audit(c.env.DB, c.get("user"), "budget.set", `${b.monthly ?? "-"} depuis ${b.since}`),
   ]);
   return c.json({ ok: true });
 });
@@ -633,6 +663,7 @@ app.get("/api/export", async (c) => {
     purchases: purchases?.results ?? [],
     cards_site: site?.results ?? [],
     alerts: alerts?.results ?? [],
+    budget: await readBudget(c.env.DB),
   });
 });
 
@@ -737,6 +768,16 @@ app.post("/api/import", async (c) => {
           p.note ?? null,
         ),
     ),
+    ...(b.budget
+      ? [
+          db
+            .prepare(
+              `INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)
+               ON CONFLICT(key) DO UPDATE SET value = ?2, updated_at = ?3`,
+            )
+            .bind(BUDGET, JSON.stringify(b.budget), now),
+        ]
+      : []),
     ...(b.alerts ?? []).map((a) =>
       db
         .prepare(

@@ -508,13 +508,29 @@ test("vue classeur : 17 pages de 9 cases, une case ouvre la fiche", async ({ pag
   await expect(page.locator("#grid")).toBeVisible();
 });
 
-test("statistiques : progression, valeur, dépenses", async ({ page }) => {
+test("statistiques et budget mensuel : chiffres clés, dépenses, reste à payer", async ({ page }) => {
   await page.goto("/");
+  // budget fixé dans les réglages
+  await page.getByRole("button", { name: "Réglages" }).click();
+  const settings = page.locator("#settings");
+  await settings.getByLabel("Montant par mois (€)").fill("40");
+  await settings.getByLabel("À partir de").fill(new Date().toISOString().slice(0, 7));
+  await settings.getByRole("button", { name: "Enregistrer" }).click();
+  await expect(page.locator(".toast").last()).toContainText("Budget : 40,00 € par mois");
+  await settings.getByRole("button", { name: "Fermer" }).click();
   await page.getByRole("button", { name: "Statistiques" }).click();
   const dlg = page.locator("#stats");
+  await expect(dlg.locator(".kpis")).toContainText("Collection");
+  await expect(dlg.locator(".kpis")).toContainText("Disponible ce mois");
+  await expect(dlg).toContainText("Budget et dépenses");
+  await expect(dlg.locator("svg.spend")).toBeVisible();
+  await expect(dlg).toContainText("Reste à payer pour l'objectif");
   await expect(dlg).toContainText("Progression");
-  await expect(dlg).toContainText("Valeur estimée");
-  await expect(dlg).toContainText("Dépenses");
+  // « Modifier le budget » ramène aux réglages ; budget supprimé pour les autres tests
+  await dlg.getByRole("button", { name: "Modifier le budget" }).click();
+  await expect(settings).toBeVisible();
+  await settings.getByRole("button", { name: "Supprimer le budget" }).click();
+  await expect(page.locator(".toast").last()).toContainText("Budget supprimé.");
 });
 
 test("ma carte : état, gradation, doubles", async ({ page }) => {

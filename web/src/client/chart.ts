@@ -35,32 +35,106 @@ export function sparkline(points: readonly [string, number][], w = 96, h = 28): 
   return svg;
 }
 
-/** Histogramme simple (une barre par libellé), hauteur proportionnelle à la valeur. */
-export function bars(entries: readonly [string, number][], w = 320, h = 120): SVGSVGElement {
-  const svg = document.createElementNS(NS, "svg");
-  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
-  svg.setAttribute("class", "bars");
-  svg.setAttribute("role", "img");
-  svg.setAttribute("aria-label", entries.map(([l, v]) => `${l} : ${eur(v)}`).join(", "));
-  const max = Math.max(1, ...entries.map((e) => e[1]));
-  const slot = w / Math.max(1, entries.length);
-  entries.forEach(([label, v], i) => {
-    const bh = (v / max) * (h - 22);
-    const rect = document.createElementNS(NS, "rect");
-    rect.setAttribute("x", (i * slot + slot * 0.15).toFixed(1));
-    rect.setAttribute("y", (h - 16 - bh).toFixed(1));
-    rect.setAttribute("width", (slot * 0.7).toFixed(1));
-    rect.setAttribute("height", bh.toFixed(1));
-    rect.setAttribute("rx", "2");
-    const tip = document.createElementNS(NS, "title");
-    tip.textContent = `${label} : ${eur(v)}`;
-    rect.append(tip);
-    const text = document.createElementNS(NS, "text");
-    text.setAttribute("x", (i * slot + slot / 2).toFixed(1));
-    text.setAttribute("y", String(h - 3));
-    text.setAttribute("text-anchor", "middle");
-    text.textContent = label;
-    svg.append(rect, text);
+const MONTHS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
+/** « oct. », ou « janv. 27 » pour le début d'une année. */
+export const monthLabel = (m: string) => {
+  const [y, mm] = m.split("-");
+  const name = MONTHS[Number(mm) - 1] ?? m;
+  return mm === "01" ? `${name} ${y?.slice(2)}` : name;
+};
+
+function el<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number>, text?: string) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+/** Arrondi « joli » pour l'axe des montants (10, 20, 50, 100…). */
+function niceMax(v: number): number {
+  const p = 10 ** Math.floor(Math.log10(Math.max(v, 1)));
+  return [1, 2, 2.5, 5, 10].map((k) => k * p).find((x) => x >= v) ?? 10 * p;
+}
+
+export interface SpendPoint {
+  month: string;
+  spent: number;
+  /** Disponible ce mois (budget + report), null hors budget. */
+  available: number | null;
+}
+
+/**
+ * Dépenses par mois : barres avec montant, axe gradué, et disponible du mois (budget + report) en repère pointillé.
+ * Le mois courant est mis en évidence.
+ */
+export function spendChart(points: readonly SpendPoint[]): SVGSVGElement {
+  const w = 640;
+  const h = 220;
+  const left = 44;
+  const top = 18;
+  const bottom = 26;
+  const plotH = h - top - bottom;
+  const max = niceMax(Math.max(1, ...points.map((p) => Math.max(p.spent, p.available ?? 0))));
+  const y = (v: number) => top + plotH - (Math.max(0, v) / max) * plotH;
+  const slot = (w - left) / Math.max(1, points.length);
+  const svg = el("svg", { viewBox: `0 0 ${w} ${h}`, class: "spend", role: "img" });
+  svg.setAttribute(
+    "aria-label",
+    points
+      .map((p) => `${monthLabel(p.month)} : ${eur(p.spent)}${p.available != null ? ` sur ${eur(p.available)}` : ""}`)
+      .join(", "),
+  );
+  for (const t of [0, 0.5, 1]) {
+    const v = max * t;
+    svg.append(
+      el("line", { x1: left, x2: w, y1: y(v), y2: y(v), class: "grid" }),
+      el("text", { x: left - 6, y: y(v) + 4, "text-anchor": "end", class: "axis" }, eur(v).replace(/,00\s/, " ")),
+    );
+  }
+  points.forEach((p, i) => {
+    const x = left + i * slot;
+    const current = i === points.length - 1;
+    const bar = el("rect", {
+      x: (x + slot * 0.18).toFixed(1),
+      y: y(p.spent).toFixed(1),
+      width: (slot * 0.64).toFixed(1),
+      height: Math.max(0, top + plotH - y(p.spent)).toFixed(1),
+      rx: 3,
+      class: `sb${current ? " now" : ""}${p.available != null && p.spent > p.available ? " over" : ""}`,
+    });
+    bar.append(
+      el(
+        "title",
+        {},
+        `${monthLabel(p.month)} : ${eur(p.spent)} dépensés${p.available != null ? `, ${eur(p.available)} disponibles` : ""}`,
+      ),
+    );
+    if (p.spent > 0) svg.append(bar);
+    if (p.available != null && p.available > 0)
+      svg.append(
+        el("line", {
+          x1: (x + slot * 0.08).toFixed(1),
+          x2: (x + slot * 0.92).toFixed(1),
+          y1: y(p.available).toFixed(1),
+          y2: y(p.available).toFixed(1),
+          class: "budget",
+        }),
+      );
+    if (p.spent > 0)
+      svg.append(
+        el(
+          "text",
+          { x: (x + slot / 2).toFixed(1), y: (y(p.spent) - 4).toFixed(1), "text-anchor": "middle", class: "val" },
+          eur(p.spent).replace(/,\d\d\s/, " "),
+        ),
+      );
+    svg.append(
+      el(
+        "text",
+        { x: (x + slot / 2).toFixed(1), y: h - 8, "text-anchor": "middle", class: `axis${current ? " now" : ""}` },
+        monthLabel(p.month),
+      ),
+    );
   });
   return svg;
 }
