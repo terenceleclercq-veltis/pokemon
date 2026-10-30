@@ -963,7 +963,7 @@ dialog.viewer::backdrop {
   /* recherche sur toute la largeur, puis filtre et tri */
   .tools {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 6px;
     padding: 8px 12px;
   }
@@ -1011,6 +1011,16 @@ dialog.viewer::backdrop {
     color: var(--mut);
     font-size: 0.7rem;
     line-height: 1.1;
+  }
+  /* libellés sur une ligne, coupés plutôt que d'élargir la barre (polices plus larges) */
+  .mainnav .lbl {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tools select {
+    min-width: 0;
   }
   .mainnav button svg {
     box-sizing: content-box;
