@@ -219,7 +219,8 @@ test("liste d'achat : objectif, liens exacts et « Achetée »", async ({ page }
   await page.getByRole("button", { name: "Liste d'achat" }).click();
   const dlg = page.locator("#buy");
   await expect(dlg).toBeVisible();
-  await expect(dlg.getByLabel("Cartes")).toHaveValue("objectif");
+  await dlg.getByRole("button", { name: "Réinitialiser" }).click();
+  await expect(dlg.getByLabel("Carte retenue")).toHaveValue("objectif");
   // pas de budget : la base E2E n'a pas de prix, et le budget écarte les cartes sans prix
   const first = dlg.locator("#buylist li").first();
   await expect(first.locator("a")).toHaveAttribute(
@@ -234,6 +235,60 @@ test("liste d'achat : objectif, liens exacts et « Achetée »", async ({ page }
   const dl = page.waitForEvent("download");
   await dlg.getByRole("button", { name: "Exporter (CSV)" }).click();
   expect((await dl).suggestedFilename()).toMatch(/^liste-achat-\d{4}-\d{2}-\d{2}\.csv$/);
+});
+
+test("liste d'achat : prix max par carte, budget total, réglages retenus", async ({ page }) => {
+  // prix simulés : la n-ième espèce visée coûte 10 × n €
+  await page.route("**/api/pokedex", async (route) => {
+    const res = await route.fetch();
+    const dex = (await res.json()) as {
+      species: { target: string | null; cards: { id: string; price: unknown }[] }[];
+    };
+    let n = 0;
+    for (const s of dex.species) {
+      const c = s.cards.find((x) => x.id === s.target);
+      if (c) c.price = { trend: 10 * ++n, low: null };
+    }
+    await route.fulfill({ response: res, json: dex });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Liste d'achat" }).click();
+  const dlg = page.locator("#buy");
+  await dlg.getByRole("button", { name: "Réinitialiser" }).click();
+  await dlg.getByLabel("Prix max par carte (€)").fill("35");
+  await expect(dlg.locator("#buylist ol > li")).toHaveCount(3); // 10, 20, 30 €
+  await expect(dlg.locator("#buylist")).toContainText("au-dessus de 35,00 € par carte");
+  await dlg.getByLabel("Prix max par carte (€)").fill("");
+  await dlg.getByLabel("Budget total (€)").fill("65");
+  await expect(dlg.locator("#buylist ol > li")).toHaveCount(3); // 10 + 20 + 30 = 60
+  await expect(dlg.locator("#buylist")).toContainText("reste 5,00 €");
+  await dlg.getByLabel("Tri").selectOption("desc");
+  // prix décroissant : les plus chères d'abord, en sautant celles qui ne tiennent plus (ici 60 €, seule)
+  await expect(dlg.locator("#buylist ol > li")).toHaveCount(1);
+  await expect(dlg.locator("#buylist ol > li input")).toHaveValue("60.00");
+  // réglages retenus d'une visite à l'autre
+  await page.reload();
+  await page.getByRole("button", { name: "Liste d'achat" }).click();
+  await expect(dlg.getByLabel("Budget total (€)")).toHaveValue("65");
+  await dlg.getByRole("button", { name: "Réinitialiser" }).click();
+  await expect(dlg.getByLabel("Budget total (€)")).toHaveValue("");
+});
+
+test("prix payé : « Je l'ai » ouvre « Ma carte », le prix compte dans les dépenses", async ({ page }) => {
+  await page.request.delete("/api/species/9/owned", { headers: { "X-Requested-With": "pokedex" } });
+  await page.goto("/#p=9");
+  const dlg = page.locator("#detail");
+  await expect(dlg.locator(".price").first()).toContainText("€");
+  await dlg.locator(".versions .opt").first().getByRole("button", { name: "Je l'ai" }).click();
+  const paid = dlg.getByLabel("Prix payé (€)");
+  await expect(paid).toBeFocused();
+  await paid.fill("12.5");
+  await dlg.locator("details.mycard").getByRole("button", { name: "Enregistrer" }).click();
+  await expect(dlg.locator("details.mycard summary")).toContainText("12,50 €");
+  await dlg.getByRole("button", { name: "Fermer" }).click();
+  await page.getByRole("button", { name: "Statistiques" }).click();
+  await expect(page.locator("#stats")).not.toContainText("Tortank,");
+  await page.request.delete("/api/species/9/owned", { headers: { "X-Requested-With": "pokedex" } });
 });
 
 test("commande : en attente, vérification à réception, puis binder", async ({ page }) => {

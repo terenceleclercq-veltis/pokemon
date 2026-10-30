@@ -43,15 +43,16 @@ export const purchaseParam = z.object({
     z.transform((s: string) => Number(s)),
   ),
 });
+/** Prix payé pour la carte possédée (« Ma carte ») ; date d'achat facultative (aujourd'hui sinon). */
+export const paidBody = z.strictObject({
+  price_paid: paid,
+  date: z.optional(z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/))),
+});
 export const purchasePatch = z.strictObject({ state: z.enum(["recue", "annulee"]), price_paid: paid });
 const wantTier = z._default(z.enum([...TIERS, "cheapest", "sir_ir", "objectif"]), "objectif");
 export const wantsQuery = z.object({ tier: wantTier });
 export const placeholdersQuery = z.object({
   scope: z._default(z.enum(["missing", "all"]), "missing"),
-});
-export const buylistQuery = z.object({
-  tier: wantTier,
-  budget: z.optional(z.coerce.number().check(z.gt(0), z.lte(100_000))),
 });
 const isoDate = z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/));
 const tcgdexImage = z.optional(z.url({ protocol: /^https$/, hostname: /^assets\.tcgdex\.net$/ }));

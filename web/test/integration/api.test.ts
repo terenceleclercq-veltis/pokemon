@@ -218,35 +218,8 @@ describe("liste d'envies, export/import", () => {
     expect(txt.split("\n").sort()).toEqual(["1 Bulbasaur Leech Seed 151", "1 Ivysaur Leech Seed Vine Whip"]);
     expect((await call("/api/wants?tier=XX")).status).toBe(400);
   });
-  it("liste d'achat : SIR sinon IR, triée par prix, dans le budget, avec lien exact", async () => {
-    await call("/api/species/1/prices");
-    await call("/api/species/2/prices");
-    type Buy = { items: { espece: string; label: string; url: string | null; trend: number }[]; total: number };
-    const all = await (await call("/api/buylist?tier=sir_ir")).json<Buy>();
-    expect(all.items.map((i) => [i.espece, i.trend])).toEqual([
-      ["Herbizarre", 20],
-      ["Bulbizarre", 90],
-    ]);
-    expect(all.total).toBe(110);
-    expect(all.items[1]?.label).toBe("Florizarre ex (MEW 198)");
-    const within = await (await call("/api/buylist?tier=sir_ir&budget=50")).json<Buy>();
-    expect(within.items).toEqual([
-      {
-        num: 2,
-        card_id: "sv03.5-167",
-        espece: "Herbizarre",
-        label: "Herbizarre (MEW 167)",
-        url: "https://www.cardmarket.com/fr/Pokemon/Products?idProduct=733762",
-        langue: "fr",
-        tier: "IR",
-        categorie: "IR",
-        image: "https://assets.tcgdex.net/fr/x/sv03.5-167/low.webp",
-        upgrade: false,
-        trend: 20,
-      },
-    ]);
-    expect(within.total).toBe(20);
-    expect((await call("/api/buylist?budget=-1")).status).toBe(400);
+  it("l'ancienne liste d'achat côté serveur n'existe plus (calculée dans le navigateur)", async () => {
+    expect((await call("/api/buylist")).status).toBe(404);
   });
   it("objectif : la rareté la plus haute, améliorations comprises", async () => {
     await call("/api/species/1/prices");
@@ -254,16 +227,8 @@ describe("liste d'envies, export/import", () => {
     expect((await species(1)).target).toBe("sv03.5-198"); // SIR visée
     expect((await species(151)).target).toBeNull(); // aucune carte
     await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } }); // IR possédée, SIR existe
-    type Buy = { items: { espece: string; card_id: string; upgrade: boolean }[] };
-    const buy = await (await call("/api/buylist")).json<Buy>(); // objectif par défaut
-    expect(buy.items.map((i) => [i.espece, i.card_id, i.upgrade])).toEqual([
-      ["Herbizarre", "sv03.5-167", false],
-      ["Bulbizarre", "sv03.5-198", true],
-    ]);
-    // les autres modes ne listent que les espèces manquantes
-    expect((await (await call("/api/buylist?tier=cheapest")).json<Buy>()).items.map((i) => i.espece)).toEqual([
-      "Herbizarre",
-    ]);
+    expect(await species(1)).toMatchObject({ status: "a_verifier", target: "sv03.5-198" }); // amélioration visée
+    expect((await species(2)).target).toBe("sv03.5-167");
     await call("/api/species/1/keep", { method: "PUT", json: {} }); // « je préfère la mienne »
     expect((await species(1)).target).toBeNull();
     expect((await call("/api/wants")).status).toBe(200);
@@ -353,6 +318,38 @@ describe("version visée, versions écartées", () => {
   });
 });
 
+describe("prix payé (« Ma carte »)", () => {
+  type Row = { state: string; price_paid: number | null; ordered_at: string; espece: string };
+  const purchases = async () => (await (await call("/api/purchases")).json<{ purchases: Row[] }>()).purchases;
+  it("« Je l'ai » puis prix payé : un achat reçu est créé, puis mis à jour (pas de doublon)", async () => {
+    await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } });
+    expect((await species(1)).owned).toMatchObject({ paid: null, bought_at: null });
+    const r = await call("/api/species/1/paid", { method: "PUT", json: { price_paid: 42.5, date: "2026-10-29" } });
+    expect(r.status).toBe(200);
+    expect(await purchases()).toEqual([
+      expect.objectContaining({ state: "recue", price_paid: 42.5, ordered_at: "2026-10-29T12:00:00.000Z" }),
+    ]);
+    await call("/api/species/1/paid", { method: "PUT", json: { price_paid: 40 } });
+    expect((await purchases()).map((p) => p.price_paid)).toEqual([40]);
+    expect((await species(1)).owned).toMatchObject({ paid: 40, bought_at: "2026-10-29T12:00:00.000Z" });
+  });
+  it("une autre carte pour l'espèce : l'ancien prix ne lui est pas attribué", async () => {
+    await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } });
+    await call("/api/species/1/paid", { method: "PUT", json: { price_paid: 30 } });
+    await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-198" } });
+    expect((await species(1)).owned).toMatchObject({ paid: null });
+  });
+  it("refus : espèce non possédée, carte hors catalogue, date ou prix invalides", async () => {
+    expect((await call("/api/species/2/paid", { method: "PUT", json: { price_paid: 5 } })).status).toBe(409);
+    await call("/api/species/2/owned", { method: "PUT", json: { tier: "IR" } });
+    expect((await call("/api/species/2/paid", { method: "PUT", json: { price_paid: 5 } })).status).toBe(409);
+    await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } });
+    const bad = (json: unknown) => call("/api/species/1/paid", { method: "PUT", json });
+    expect((await bad({ price_paid: -1 })).status).toBe(400);
+    expect((await bad({ price_paid: 5, date: "29/10/2026" })).status).toBe(400);
+  });
+});
+
 describe("ma carte : note, état, gradation, doubles", () => {
   type Owned = { note: string | null; condition: string | null; grade: string | null; doubles: number };
   const owned = async () => (await species(1)).owned as unknown as Owned;
@@ -379,8 +376,6 @@ describe("commandes", () => {
     const s = await species(2);
     expect(s.order?.card_id).toBe("sv03.5-167");
     expect(s.status).toBe("manquante");
-    const buy = await (await call("/api/buylist")).json<{ items: { espece: string }[] }>();
-    expect(buy.items.map((i) => i.espece)).not.toContain("Herbizarre");
     // une seule commande en cours par espèce
     expect((await call("/api/purchases", { method: "POST", json: { card_id: "sv03.5-167" } })).status).toBe(409);
     const { purchases } = await (await call("/api/purchases")).json<Purchases>();
