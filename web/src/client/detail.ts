@@ -21,6 +21,7 @@ import {
   visualOf,
 } from "./state";
 import { openViewer } from "./viewer";
+import { addToVitrine, inVitrine, removeFromVitrine } from "./vitrine";
 
 export interface DetailHooks {
   /** Recharge le pokédex après une modification. */
@@ -225,6 +226,26 @@ function secondary(s: Species, c: Card): HTMLElement {
           "Pas cette version (illustration, pas une vraie full art…)",
         ),
   );
+  // vitrine (protections aimantées) : seulement ta carte
+  if (s.owned?.card_id === c.id)
+    acts.push(
+      inVitrine(c.id)
+        ? link("Retirer de la vitrine", (e) => {
+            write(e.currentTarget, async () => {
+              await removeFromVitrine(c);
+              paint(s, false);
+            });
+          })
+        : link(
+            "Mettre en vitrine",
+            (e) => {
+              write(e.currentTarget, async () => {
+                if (await addToVitrine(c)) paint(s, false);
+              });
+            },
+            "Une des 5 protections aimantées exposées au-dessus du classeur",
+          ),
+    );
   // une version ajoutée depuis le site se retire (pas une carte du catalogue, ni la tienne, ni celle commandée)
   if (c.origine === "site" && s.owned?.card_id !== c.id && s.order?.card_id !== c.id)
     acts.push(

@@ -561,6 +561,36 @@ test("ma carte : état, gradation, doubles", async ({ page }) => {
   await page.request.delete("/api/species/4/owned", { headers });
 });
 
+test("vitrine : ta carte depuis sa fiche, au-dessus du classeur ; un clic rouvre la fiche", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "vitrine commune aux deux projets : testée sur desktop");
+  const headers = { "X-Requested-With": "pokedex" };
+  const dex = (await (await page.request.get("/api/pokedex")).json()) as {
+    species: { num: number; cards: { id: string }[] }[];
+  };
+  const card = dex.species.find((x) => x.num === 12)?.cards[0]?.id ?? "";
+  await page.request.put("/api/species/12/owned", { headers, data: { card_id: card } });
+  await page.goto("/#v=classeur");
+  const vitrine = page.locator("#vitrine");
+  await expect(vitrine.locator(".case.empty")).toHaveCount(5);
+  await page.locator('#binder [data-num="12"]').click();
+  const dlg = page.locator("#detail");
+  // seulement sur ta carte
+  await expect(dlg.getByRole("button", { name: "Mettre en vitrine" })).toHaveCount(1);
+  await dlg.getByRole("button", { name: "Mettre en vitrine" }).click();
+  await expect(page.locator(".toast")).toContainText("en vitrine");
+  await dlg.getByRole("button", { name: "Fermer" }).click();
+  await expect(vitrine.locator("button.holder")).toHaveCount(1);
+  await expect(vitrine.locator(".case.empty")).toHaveCount(4);
+  await vitrine.locator("button.holder").click();
+  await expect(dlg.getByRole("heading", { name: "#012 Papilusion" })).toBeVisible();
+  await dlg.getByRole("button", { name: "Retirer de la vitrine" }).click();
+  await expect(vitrine.locator(".case.empty")).toHaveCount(5);
+  await page.request.delete("/api/species/12/owned", { headers });
+});
+
 test("réglages : liste d'envies et export", async ({ page, context, isMobile }) => {
   test.skip(isMobile, "presse-papiers testé sur desktop");
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);

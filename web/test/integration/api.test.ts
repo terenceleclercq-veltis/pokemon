@@ -357,6 +357,25 @@ describe("budget mensuel", () => {
   });
 });
 
+describe("vitrine (protections aimantées)", () => {
+  it("seulement tes cartes, 5 au plus, sans doublon ; comprise dans la sauvegarde", async () => {
+    expect(await (await call("/api/vitrine")).json()).toEqual({ cards: [] });
+    const put = (cards: string[]) => call("/api/vitrine", { method: "PUT", json: { cards } });
+    // pas encore à toi : refusée
+    expect((await put(["sv03.5-166"])).status).toBe(400);
+    await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } });
+    expect((await put(["sv03.5-166"])).status).toBe(200);
+    expect(await (await call("/api/vitrine")).json()).toEqual({ cards: ["sv03.5-166"] });
+    expect((await put(["sv03.5-166", "sv03.5-166"])).status).toBe(400);
+    expect((await put(["a-1", "a-2", "a-3", "a-4", "a-5", "a-6"])).status).toBe(400);
+    const dump = await (await call("/api/export")).json<{ vitrine: unknown }>();
+    expect(dump.vitrine).toEqual({ cards: ["sv03.5-166"] });
+    expect((await put([])).status).toBe(200);
+    expect((await call("/api/import", { method: "POST", json: dump })).status).toBe(200);
+    expect(await (await call("/api/vitrine")).json()).toEqual({ cards: ["sv03.5-166"] });
+  });
+});
+
 describe("prix payé (« Ma carte »)", () => {
   type Row = { state: string; price_paid: number | null; ordered_at: string; espece: string };
   const purchases = async () => (await (await call("/api/purchases")).json<{ purchases: Row[] }>()).purchases;

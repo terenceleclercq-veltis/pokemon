@@ -27,6 +27,7 @@ import {
   alertBody,
   cardParam,
   budgetBody,
+  vitrineBody,
   detailsBody,
   paidBody,
   excludeBody,
@@ -324,6 +325,45 @@ app.put("/api/budget", async (c) => {
        ON CONFLICT(key) DO UPDATE SET value = ?2, updated_at = ?3`,
     ).bind(BUDGET, JSON.stringify(b), now),
     audit(c.env.DB, c.get("user"), "budget.set", `${b.monthly ?? "-"} depuis ${b.since}`),
+  ]);
+  return c.json({ ok: true });
+});
+
+const VITRINE = "vitrine";
+
+/** Vitrine : tes cartes exposées dans les protections aimantées ; vide si rien n'est enregistré ou illisible. */
+async function readVitrine(db: D1Database) {
+  const row = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(VITRINE).first<{ value: string }>();
+  try {
+    const parsed = vitrineBody.safeParse(JSON.parse(row?.value ?? "null"));
+    return parsed.success ? parsed.data : { cards: [] };
+  } catch {
+    return { cards: [] };
+  }
+}
+
+app.get("/api/vitrine", async (c) => c.json(await readVitrine(c.env.DB)));
+
+app.put("/api/vitrine", async (c) => {
+  const b = parse(vitrineBody, await jsonBody(c));
+  const ids = b.cards;
+  if (new Set(ids).size !== ids.length) throw fail(400, "carte en double dans la vitrine");
+  // seulement des cartes que tu as (celle du binder de chaque espèce)
+  if (ids.length) {
+    const mine = await c.env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM owned WHERE card_id IN (${ids.map(() => "?").join(",")})`,
+    )
+      .bind(...ids)
+      .first<{ n: number }>();
+    if ((mine?.n ?? 0) !== ids.length) throw fail(400, "seules tes cartes peuvent aller en vitrine");
+  }
+  const now = new Date().toISOString();
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)
+       ON CONFLICT(key) DO UPDATE SET value = ?2, updated_at = ?3`,
+    ).bind(VITRINE, JSON.stringify(b), now),
+    audit(c.env.DB, c.get("user"), "vitrine.set", ids.join(" ") || "-"),
   ]);
   return c.json({ ok: true });
 });
@@ -664,6 +704,7 @@ app.get("/api/export", async (c) => {
     cards_site: site?.results ?? [],
     alerts: alerts?.results ?? [],
     budget: await readBudget(c.env.DB),
+    vitrine: await readVitrine(c.env.DB),
   });
 });
 
@@ -776,6 +817,16 @@ app.post("/api/import", async (c) => {
                ON CONFLICT(key) DO UPDATE SET value = ?2, updated_at = ?3`,
             )
             .bind(BUDGET, JSON.stringify(b.budget), now),
+        ]
+      : []),
+    ...(b.vitrine
+      ? [
+          db
+            .prepare(
+              `INSERT INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)
+               ON CONFLICT(key) DO UPDATE SET value = ?2, updated_at = ?3`,
+            )
+            .bind(VITRINE, JSON.stringify(b.vitrine), now),
         ]
       : []),
     ...(b.alerts ?? []).map((a) =>

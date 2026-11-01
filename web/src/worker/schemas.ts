@@ -56,6 +56,8 @@ export const budgetBody = z.strictObject({
   monthly: z.nullable(z.number().check(z.gt(0), z.lte(100_000))),
   since: z.string().check(z.regex(/^\d{4}-(0[1-9]|1[0-2])$/)),
 });
+/** Vitrine : jusqu'à 5 de tes cartes exposées dans les protections aimantées, dans l'ordre d'ajout. */
+export const vitrineBody = z.strictObject({ cards: z.array(cardId).check(z.maxLength(5)) });
 export const purchasePatch = z.strictObject({ state: z.enum(["recue", "annulee"]), price_paid: paid });
 const wantTier = z._default(z.enum([...TIERS, "cheapest", "sir_ir", "objectif"]), "objectif");
 export const wantsQuery = z.object({ tier: wantTier });
@@ -104,6 +106,7 @@ export const importBody = z.strictObject({
   ),
   cards_site: z.optional(z.array(siteCard).check(z.maxLength(2000))),
   budget: z.optional(z.nullable(z.lazy(() => budgetBody))),
+  vitrine: z.optional(z.lazy(() => vitrineBody)),
   alerts: z.optional(
     z
       .array(z.object({ card_id: cardId, max_price: z.number().check(z.gt(0), z.lte(100_000)) }))
