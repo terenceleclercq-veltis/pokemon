@@ -65,16 +65,7 @@ const empty = () => h("li", { class: "case empty" }, h("div", { class: "holder" 
 export function renderVitrine(): void {
   const cards = shown();
   $("vitrine").replaceChildren(
-    h(
-      "h2",
-      { id: "vitrine-title" },
-      "Vitrine",
-      h(
-        "span",
-        { class: "mut" },
-        cards.length < VITRINE_SIZE ? "« Mettre en vitrine » dans la fiche d'une de tes cartes" : "",
-      ),
-    ),
+    h("h2", { id: "vitrine-title" }, "Vitrine"),
     h("ol", { class: "cases" }, ...cards.map(slot), ...Array.from({ length: VITRINE_SIZE - cards.length }, empty)),
   );
 }

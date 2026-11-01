@@ -393,11 +393,6 @@ a {
   margin: 0 2px 12px;
   font-size: 1.05rem;
 }
-.vitrine h2 .mut {
-  color: var(--mut);
-  font-size: 0.8rem;
-  font-weight: 500;
-}
 .cases {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
