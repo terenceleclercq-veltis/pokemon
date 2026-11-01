@@ -607,6 +607,21 @@ test("réglages : liste d'envies et export", async ({ page, context, isMobile })
   await expect(page.getByText("Compte Cardmarket")).toHaveCount(0);
 });
 
+test("mobile : pas de zoom à la saisie, pincement possible dans les fiches", async ({ page, isMobile }) => {
+  test.skip(!isMobile, "écran tactile seulement");
+  await page.goto("/");
+  await expect(page.locator(".tile")).toHaveCount(151);
+  // iOS zoome sur tout champ dont le texte fait moins de 16 px
+  const small = await page.evaluate(() =>
+    [...document.querySelectorAll("input, select, textarea")]
+      .filter((e) => parseFloat(getComputedStyle(e).fontSize) < 16)
+      .map((e) => e.id || e.getAttribute("name") || e.tagName),
+  );
+  expect(small).toEqual([]);
+  await page.locator(".tile").first().click();
+  expect(await page.locator("#detail-body").evaluate((e) => getComputedStyle(e).touchAction)).toContain("pinch-zoom");
+});
+
 test("pas de défilement horizontal", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".tile")).toHaveCount(151);
