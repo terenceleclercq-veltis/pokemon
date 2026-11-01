@@ -11,6 +11,7 @@ import { pushState, readState, rememberMode, replaceState, type Mode, type ViewS
 import { initDashboard } from "./stats";
 import { alertHit, artImg, store, type Filter, type Sort } from "./state";
 import { initViewer } from "./viewer";
+import { renderVitrine } from "./vitrine";
 
 let view: ViewState = readState();
 /** La fiche a ajouté une entrée d'historique : la fermer revient en arrière (bouton retour cohérent). */
@@ -22,10 +23,12 @@ function render(): void {
   document.body.classList.toggle("binder-mode", binder);
   $("grid").hidden = binder;
   $("binder").hidden = !binder;
+  $("vitrine").hidden = !binder;
   for (const m of ["grille", "classeur"] as Mode[]) $(`v-${m}`).setAttribute("aria-pressed", String(view.v === m));
   if (binder) {
     renderStats();
     $("empty").hidden = true;
+    renderVitrine();
     renderBinder();
   } else renderGrid(view);
 }
@@ -45,16 +48,20 @@ function showOffline(since: string | null): void {
 }
 
 async function load(): Promise<void> {
-  const [res, budget] = await Promise.all([
+  const [res, budget, vitrine] = await Promise.all([
     api("/api/pokedex"),
     api("/api/budget")
       .then((b) => b.json() as Promise<Budget>)
       .catch(() => store.budget),
+    api("/api/vitrine")
+      .then(async (v) => ((await v.json()) as { cards: string[] }).cards)
+      .catch(() => store.vitrine),
   ]);
   showOffline(res.headers.get("X-Offline"));
   const r = (await res.json()) as { species: Species[] };
   store.data = r.species;
   store.budget = budget;
+  store.vitrine = vitrine;
   render();
 }
 
@@ -101,7 +108,7 @@ function bindTools(): void {
     showControls();
     $("grid").scrollIntoView({ block: "start", behavior: "smooth" });
   });
-  for (const id of ["grid", "binder"])
+  for (const id of ["grid", "binder", "vitrine"])
     $(id).addEventListener("click", (e) => {
       const t = (e.target as HTMLElement).closest<HTMLElement>("[data-num]");
       if (t) void openDetail(Number(t.dataset.num));

@@ -23,7 +23,11 @@ export const CATEGORIE_NOTE: Record<string, string> = {
   SHINY: "Chromatique, pas full art",
 };
 
-export const store: { data: Species[]; budget: Budget } = { data: [], budget: { monthly: null, since: null } };
+export const store: { data: Species[]; budget: Budget; vitrine: string[] } = {
+  data: [],
+  budget: { monthly: null, since: null },
+  vitrine: [],
+};
 export const byNum = (n: number) => store.data.find((s) => s.num === n);
 
 /** Miniature de la carte (TCGdex, ~25 Ko) ; null si TCGdex n'a pas encore d'image. */

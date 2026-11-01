@@ -375,6 +375,76 @@ a {
   font-size: 0.8rem;
 }
 
+/* Vitrine : les 5 protections aimantées exposées devant le classeur */
+.vitrine {
+  margin: 18px 16px 0;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--bd);
+  border-radius: 14px;
+  background:
+    radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--brand) 10%, transparent), transparent 70%), var(--card);
+  box-shadow: var(--shadow-s);
+}
+.vitrine h2 {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 2px 12px;
+  font-size: 1.05rem;
+}
+.cases {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.case {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+/* protection aimantée : bloc transparent épais autour de la carte */
+.holder {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 63 / 86;
+  padding: 7%;
+  border: 1px solid color-mix(in srgb, var(--fg) 18%, transparent);
+  border-radius: 12px;
+  background: linear-gradient(150deg, #ffffff59 0%, #ffffff14 45%, #ffffff33 100%), var(--pic);
+  box-shadow:
+    inset 0 0 0 3px #ffffff40,
+    inset 0 -6px 14px #00000014,
+    0 10px 22px #0000002e;
+  color: var(--mut);
+}
+button.holder {
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+button.holder:hover {
+  transform: translateY(-3px);
+}
+.holder img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 5px;
+  box-shadow: 0 2px 6px #0006;
+}
+.case.empty .holder {
+  border-style: dashed;
+  box-shadow: none;
+  background: transparent;
+  font-size: 0.85rem;
+}
 /* Vue classeur : pages de 3 × 3 façon pochettes de classeur, deux pages côte à côte sur grand écran */
 #binder {
   display: grid;
@@ -972,6 +1042,17 @@ dialog.viewer::backdrop {
   }
   #binder {
     padding: 12px;
+  }
+  .vitrine {
+    margin: 12px 12px 0;
+    padding: 12px 10px;
+  }
+  .cases {
+    gap: 6px;
+  }
+  .holder {
+    padding: 5%;
+    border-radius: 8px;
   }
   .appbar {
     padding: 8px 12px;
