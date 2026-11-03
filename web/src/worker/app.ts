@@ -3,13 +3,12 @@ import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { secureHeaders } from "hono/secure-headers";
 import type * as z from "zod/mini";
-import { APIError } from "@anthropic-ai/sdk";
 import {
   ANALYSE_STEPS,
   analyseBody,
-  AnalyseError,
   askClaude,
   costUsd,
+  explain,
   REQUIRED_STEPS,
   verdict,
   type PhotoRef,
@@ -643,13 +642,8 @@ app.post("/api/scans/:id/analyses", async (c) => {
         )
         .run();
     } catch (e) {
-      const message =
-        e instanceof AnalyseError
-          ? e.message
-          : e instanceof APIError
-            ? `Claude a répondu ${String(e.status)}`
-            : "échec de l'appel à Claude";
-      console.error(JSON.stringify({ msg: "analyse en échec", id: aid, err: String(e).slice(0, 300) }));
+      const message = explain(e);
+      console.error(JSON.stringify({ msg: "analyse en échec", id: aid, err: message }));
       await db
         .prepare("UPDATE analyse SET state = 'echec', finished_at = ?1, erreur = ?2 WHERE id = ?3")
         .bind(now(), message, aid)

@@ -1,5 +1,6 @@
 // Pré-évaluation PSA d'un scan par Claude : Claude relève l'état des coins, des bords et de la surface sur les photos
 // (format imposé) ; le site mesure lui-même le centrage ; le verdict découle de règles fixes, pas du modèle.
+import { APIError } from "@anthropic-ai/sdk";
 import type Anthropic from "@anthropic-ai/sdk";
 import * as z from "zod/mini";
 
@@ -247,6 +248,23 @@ export interface Outcome {
 export class AnalyseError extends Error {}
 
 /**
+ * Message lisible d'un échec, enregistré avec l'analyse et affiché dans la fiche : statut, type et message renvoyés
+ * par Anthropic (« credit balance too low », image refusée…), jamais de secret.
+ */
+export function explain(e: unknown): string {
+  if (e instanceof AnalyseError) return e.message;
+  if (e instanceof APIError) {
+    const body = e.error as { error?: { message?: unknown } } | undefined;
+    const detail = typeof body?.error?.message === "string" ? body.error.message : e.message;
+    return `Claude a répondu ${String(e.status ?? "sans statut")}${e.type ? ` (${e.type})` : ""} : ${detail}`.slice(
+      0,
+      400,
+    );
+  }
+  return e instanceof Error ? e.message.slice(0, 400) : "échec de l'appel à Claude";
+}
+
+/**
  * Envoie les photos (API Files : pas d'encodage base64 dans le Worker, plan gratuit à 10 ms de calcul) puis demande
  * les constats à Claude ; les fichiers sont supprimés ensuite (ils expirent de toute façon au bout d'une heure).
  */
@@ -274,29 +292,34 @@ export async function askClaude(
         return { ...p, file: meta.id };
       }),
     );
-    const uploaded = results.map((r) => {
-      if (r.status === "rejected") throw r.reason;
-      return r.value;
+    const uploaded = results.map((r, i) => {
+      if (r.status === "fulfilled") return r.value;
+      if (r.reason instanceof AnalyseError) throw r.reason;
+      throw new AnalyseError(`envoi des photos refusé (${photos[i]?.step ?? "?"}) — ${explain(r.reason)}`);
     });
     progress("analyse");
-    const message = await client.messages.create({
-      model,
-      max_tokens: 16_000,
-      system: SYSTEM,
-      output_config: { effort: "high", format: { type: "json_schema", schema: FINDINGS_SCHEMA } },
-      messages: [
-        {
-          role: "user",
-          content: [
-            ...uploaded.flatMap((p, i) => [
-              { type: "text" as const, text: `Photo ${i + 1} : ${STEP_LABEL(p.step)}` },
-              { type: "image" as const, source: { type: "file" as const, file_id: p.file } },
-            ]),
-            { type: "text" as const, text: "Relève l'état de cette carte dans le format demandé." },
-          ],
-        },
-      ],
-    });
+    const message = await client.messages
+      .create({
+        model,
+        max_tokens: 16_000,
+        system: SYSTEM,
+        output_config: { effort: "high", format: { type: "json_schema", schema: FINDINGS_SCHEMA } },
+        messages: [
+          {
+            role: "user",
+            content: [
+              ...uploaded.flatMap((p, i) => [
+                { type: "text" as const, text: `Photo ${i + 1} : ${STEP_LABEL(p.step)}` },
+                { type: "image" as const, source: { type: "file" as const, file_id: p.file } },
+              ]),
+              { type: "text" as const, text: "Relève l'état de cette carte dans le format demandé." },
+            ],
+          },
+        ],
+      })
+      .catch((e: unknown) => {
+        throw new AnalyseError(`analyse refusée — ${explain(e)}`);
+      });
     if (message.stop_reason === "refusal") throw new AnalyseError("Claude a refusé l'analyse");
     if (message.stop_reason === "max_tokens") throw new AnalyseError("réponse de Claude tronquée");
     const text = message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");

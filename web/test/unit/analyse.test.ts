@@ -1,10 +1,11 @@
-import type Anthropic from "@anthropic-ai/sdk";
+import Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it, vi } from "vitest";
 import {
   AnalyseError,
   askClaude,
   centeringCap,
   costUsd,
+  explain,
   FINDINGS_SCHEMA,
   findings,
   REQUIRED_STEPS,
@@ -155,6 +156,29 @@ describe("pré-évaluation : appel à Claude", () => {
       await expect(askClaude(f.client, "m", photos, read, () => undefined)).rejects.toThrow(error);
       expect(f.remove).toHaveBeenCalledTimes(10);
     }
+  });
+  it("erreur d'Anthropic : statut, type et message enregistrés, avec l'étape (envoi des photos ou analyse)", async () => {
+    const credit = Anthropic.APIError.generate(
+      400,
+      { type: "error", error: { type: "invalid_request_error", message: "Your credit balance is too low" } },
+      undefined,
+      new Headers(),
+    );
+    expect(explain(credit)).toBe("Claude a répondu 400 (invalid_request_error) : Your credit balance is too low");
+    expect(explain(new Error("réseau coupé"))).toBe("réseau coupé");
+    expect(explain("?")).toBe("échec de l'appel à Claude");
+    const upload = fakeClient(() => Promise.resolve(message(JSON.stringify(PERFECT))));
+    upload.upload.mockRejectedValueOnce(credit);
+    await expect(askClaude(upload.client, "m", photos, read, () => undefined)).rejects.toThrow(
+      "envoi des photos refusé (recto) — Claude a répondu 400 (invalid_request_error) : Your credit balance is too low",
+    );
+    expect(upload.create).not.toHaveBeenCalled();
+    expect(upload.remove).toHaveBeenCalledTimes(9);
+    const refused = fakeClient(() => Promise.reject(credit));
+    await expect(askClaude(refused.client, "m", photos, read, () => undefined)).rejects.toThrow(
+      "analyse refusée — Claude a répondu 400 (invalid_request_error) : Your credit balance is too low",
+    );
+    expect(refused.remove).toHaveBeenCalledTimes(10);
   });
   it("photo absente de R2 : aucune demande au modèle, les fichiers déjà envoyés sont supprimés", async () => {
     const f = fakeClient(() => Promise.resolve(message(JSON.stringify(PERFECT))));

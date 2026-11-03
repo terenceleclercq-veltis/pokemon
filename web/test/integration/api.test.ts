@@ -295,10 +295,12 @@ describe("pré-évaluation PSA par Claude", () => {
     mockOutbound({}, api.handler);
     const id = await scanWith();
     const out = await lines(await analyse(id));
-    expect(out.at(-1)).toEqual({ erreur: "Claude a répondu 400" });
+    // raison d'Anthropic et étape fautive enregistrées : diagnostic sans fouiller les journaux
+    const reason = "analyse refusée — Claude a répondu 400 (invalid_request_error) : refusé";
+    expect(out.at(-1)).toEqual({ erreur: reason });
     expect(await env.DB.prepare("SELECT state, erreur FROM analyse").first()).toEqual({
       state: "echec",
-      erreur: "Claude a répondu 400",
+      erreur: reason,
     });
     expect(api.calls.filter((c) => c.method === "DELETE")).toHaveLength(10);
   });

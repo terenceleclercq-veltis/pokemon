@@ -123,18 +123,23 @@ async function run(scanId: string, centrage: FaceOf<Borders | null>, progress: (
   if (!reader) throw new ApiError("réponse vide", 0);
   const decoder = new TextDecoder();
   let buffer = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (value) buffer += decoder.decode(value, { stream: true });
-    let nl;
-    while ((nl = buffer.indexOf("\n")) >= 0) {
-      const line = JSON.parse(buffer.slice(0, nl)) as Progress | { analyse: Analyse } | { erreur: string };
-      buffer = buffer.slice(nl + 1);
-      if ("analyse" in line) return line.analyse;
-      if ("erreur" in line) throw new ApiError(line.erreur, 502);
-      progress(line);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (value) buffer += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buffer.indexOf("\n")) >= 0) {
+        const line = JSON.parse(buffer.slice(0, nl)) as Progress | { analyse: Analyse } | { erreur: string };
+        buffer = buffer.slice(nl + 1);
+        if ("analyse" in line) return line.analyse;
+        if ("erreur" in line) throw new ApiError(line.erreur, 502);
+        progress(line);
+      }
+      if (done) throw new ApiError("analyse interrompue : réessaie", 0);
     }
-    if (done) throw new ApiError("analyse interrompue : réessaie", 0);
+  } finally {
+    // résultat reçu (ou échec) : connexion fermée tout de suite, sans attendre la fin du flux
+    void reader.cancel().catch(() => undefined);
   }
 }
 
