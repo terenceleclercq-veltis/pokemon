@@ -1,6 +1,11 @@
-/* Placeholders imprimables : 63 × 88 mm (format carte), 3 × 3 par feuille A4. */
+/* Placeholders imprimables : format toploader 76 × 101 mm (3 × 2 par A4 paysage, pour les pochettes 91 × 116 mm du
+   classeur compatible toploader) ou format carte 63 × 88 mm (3 × 3 par A4 portrait). */
 @page {
   size: A4;
+  margin: 0;
+}
+@page paysage {
+  size: A4 landscape;
   margin: 0;
 }
 * {
@@ -13,7 +18,7 @@ body {
   background: #eee;
 }
 .noprint {
-  max-width: 210mm;
+  max-width: 297mm;
   margin: 16px auto;
   padding: 0 16px;
 }
@@ -35,6 +40,15 @@ body {
   grid-template-columns: repeat(3, 63mm);
   grid-auto-rows: 88mm;
   break-after: page;
+}
+/* toploader 3 × 4 pouces : même encombrement qu'une carte en toploader dans la pochette */
+.sheet.toploader {
+  page: paysage;
+  width: 297mm;
+  height: 210mm;
+  padding: 4mm 34.5mm;
+  grid-template-columns: repeat(3, 76mm);
+  grid-auto-rows: 101mm;
 }
 .ph {
   display: flex;
@@ -90,6 +104,35 @@ body {
 }
 .ph .qr path {
   fill: #000;
+}
+.toploader .ph {
+  padding: 5mm;
+}
+.toploader .ph .num {
+  font-size: 8.5mm;
+}
+.toploader .ph .slot {
+  font-size: 3.6mm;
+}
+.toploader .ph img {
+  width: 64mm;
+  height: 64mm;
+  margin: 4mm 0;
+}
+.toploader .ph.rich img {
+  width: 48mm;
+  height: 48mm;
+  margin: 3mm 0 1mm;
+}
+.toploader .ph .name {
+  font-size: 7mm;
+}
+.toploader .ph .goal {
+  font-size: 3.8mm;
+}
+.toploader .ph .qr {
+  width: 22mm;
+  height: 22mm;
 }
 @media print {
   body {

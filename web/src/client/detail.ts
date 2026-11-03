@@ -258,8 +258,10 @@ function secondary(s: Species, c: Card): HTMLElement {
         });
       }),
     );
-  // alerte : pas sur ta carte, ni sur une version écartée (ignorée par les alertes)
-  return h("div", { class: "acts" }, ...acts, s.owned?.card_id === c.id || c.excluded ? null : alertForm(s, c));
+  // alerte : pas sur ta carte, ni sur une version écartée (ignorée par les alertes) ; une alerte existante reste
+  // toujours modifiable et retirable
+  const noAlert = (s.owned?.card_id === c.id || c.excluded) && c.alert == null;
+  return h("div", { class: "acts" }, ...acts, noAlert ? null : alertForm(s, c));
 }
 
 function priceBlock(s: Species, c: Card): HTMLElement {

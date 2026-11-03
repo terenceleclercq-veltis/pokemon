@@ -13,12 +13,19 @@
     <form id="opts" class="noprint">
       <h1>Placeholders de binder</h1>
       <p>
-        Une fiche au format carte (63 × 88 mm) avec l'illustration officielle du Pokémon, son emplacement dans le
-        classeur (page, case) et, au choix, la carte visée avec un QR code vers l'offre Cardmarket exacte. 9 par feuille
-        A4. Impression : A4,
-        <strong>échelle 100 %</strong> (pas « ajuster à la page »), marges « aucune », graphismes d'arrière-plan
-        activés.
+        Une fiche par Pokémon avec son illustration officielle, son emplacement dans le classeur (page, case) et, au
+        choix, la carte visée avec un QR code vers l'offre Cardmarket exacte. Impression : A4,
+        <strong>échelle 100 %</strong> (pas « ajuster à la page »), marges « aucune », graphismes d'arrière-plan activés
+        ; au format toploader, orientation <strong>paysage</strong>. Un papier épais (160 à 200 g) tient mieux dans la
+        pochette.
       </p>
+      <label
+        >Format
+        <select id="format">
+          <option value="toploader">Toploader 3 × 4 (76 × 101 mm), 6 par feuille : directement dans la pochette</option>
+          <option value="carte">Carte (63 × 88 mm), 9 par feuille : dans un toploader ou un classeur classique</option>
+        </select>
+      </label>
       <label
         >Espèces
         <select id="scope">

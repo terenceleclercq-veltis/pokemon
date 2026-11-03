@@ -1,4 +1,5 @@
-// Page d'impression des placeholders de binder : fiches 63 × 88 mm, 9 par feuille A4, dans l'ordre du classeur.
+// Page d'impression des placeholders de binder, dans l'ordre du classeur : format toploader 76 × 101 mm (6 par A4
+// paysage, pour les pochettes du classeur compatible toploader) ou format carte 63 × 88 mm (9 par A4 portrait).
 // Version enrichie : carte visée (rareté, code, prix) et QR code vers l'offre Cardmarket exacte.
 import { encode } from "uqr";
 import { api, type Tier } from "./api";
@@ -11,7 +12,9 @@ interface Item {
   target: { label: string; code: string | null; tier: Tier; trend: number | null; url: string | null } | null;
 }
 
-const PER_SHEET = 9;
+/** Fiches par feuille A4 selon le format. */
+const PER_SHEET = { toploader: 6, carte: 9 } as const;
+type Format = keyof typeof PER_SHEET;
 const NS = "http://www.w3.org/2000/svg";
 // Illustrations officielles (dépôt public PokéAPI), chargées à l'affichage : rien n'est copié dans le dépôt.
 const artwork = (num: number) =>
@@ -71,18 +74,21 @@ function fiche(it: Item, rich: boolean): HTMLElement {
 async function render(): Promise<void> {
   const q = new URLSearchParams({ scope: $as("scope", HTMLSelectElement).value });
   const rich = $as("rich", HTMLSelectElement).value === "oui";
+  const format: Format = $as("format", HTMLSelectElement).value === "carte" ? "carte" : "toploader";
+  const per = PER_SHEET[format];
   const { items } = (await (await api(`/api/placeholders?${q.toString()}`)).json()) as { items: Item[] };
   const sheets: HTMLElement[] = [];
-  for (let i = 0; i < items.length; i += PER_SHEET)
-    sheets.push(h("section", { class: "sheet" }, ...items.slice(i, i + PER_SHEET).map((it) => fiche(it, rich))));
+  for (let i = 0; i < items.length; i += per)
+    sheets.push(h("section", { class: `sheet ${format}` }, ...items.slice(i, i + per).map((it) => fiche(it, rich))));
   $("sheets").replaceChildren(...sheets);
   $("count").textContent = `${items.length} fiche${items.length > 1 ? "s" : ""} · ${sheets.length} feuille${
     sheets.length > 1 ? "s" : ""
-  } A4`;
+  } A4${format === "toploader" ? " paysage" : ""}`;
 }
 
 $("scope").addEventListener("change", () => void render());
 $("rich").addEventListener("change", () => void render());
+$("format").addEventListener("change", () => void render());
 $("print").addEventListener("click", () => {
   window.print();
 });
