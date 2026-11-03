@@ -429,3 +429,100 @@ export function motion(a: Uint8Array, b: Uint8Array): number {
   }
   return n ? s / n : 0;
 }
+
+// --- centrage ------------------------------------------------------------------------------------------------------
+
+/** Largeur des quatre bordures d'une face redressée, en mm, et centrage. */
+export interface Borders {
+  gauche: number;
+  droite: number;
+  haut: number;
+  bas: number;
+  /** Part de la plus large des deux bordures, en % : 50 = parfait, 55 = « 55/45 ». */
+  lr: number;
+  tb: number;
+  /** Mesure fiable : bordure trouvée sur la plupart des lignes, positions resserrées. */
+  sure: boolean;
+}
+
+type Side = "gauche" | "droite" | "haut" | "bas";
+
+const median = (v: number[]) => {
+  const s = [...v].sort((a, b) => a - b);
+  return s.length ? (s[Math.floor((s.length - 1) / 2)]! + s[Math.ceil((s.length - 1) / 2)]!) / 2 : 0;
+};
+
+/**
+ * Bordure d'un côté : sur des lignes perpendiculaires au bord (au milieu du côté, loin des coins arrondis), la
+ * couleur de la bordure est prise entre 0,3 et 1,2 mm du bord (le tout premier liseré, blanchi ou mal détouré, est
+ * ignoré) ; la bordure s'arrête au premier pixel nettement différent (3 pixels de suite). Médiane des lignes.
+ */
+function side(rgba: Uint8ClampedArray, w: number, h: number, s: Side, mm: number) {
+  const vertical = s === "gauche" || s === "droite";
+  const along = vertical ? h : w;
+  const depth = Math.min(Math.round(12 * mm), Math.floor((vertical ? w : h) / 2));
+  const ref0 = Math.round(0.3 * mm);
+  const ref1 = Math.round(1.2 * mm);
+  const px = (line: number, t: number): [number, number, number] => {
+    const [x, y] =
+      s === "gauche" ? [t, line] : s === "droite" ? [w - 1 - t, line] : s === "haut" ? [line, t] : [line, h - 1 - t];
+    const i = (y * w + x) * 4;
+    return [rgba[i] ?? 0, rgba[i + 1] ?? 0, rgba[i + 2] ?? 0];
+  };
+  // trois lignes voisines moyennées : moins de bruit (grain, compression JPEG)
+  const at = (line: number, t: number) => {
+    const a = px(line - 1, t);
+    const b = px(line, t);
+    const c = px(line + 1, t);
+    return [(a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, (a[2] + b[2] + c[2]) / 3];
+  };
+  const found: number[] = [];
+  let lines = 0;
+  for (let line = Math.round(along * 0.2); line < along * 0.8; line += 4) {
+    lines++;
+    const ref: number[][] = [];
+    for (let t = ref0; t < ref1; t++) ref.push(at(line, t));
+    const c = [0, 1, 2].map((k) => median(ref.map((p) => p[k]!)));
+    const dist = (p: number[]) => Math.hypot(p[0]! - c[0]!, p[1]! - c[1]!, p[2]! - c[2]!);
+    const noise = median(ref.map(dist));
+    const limit = Math.max(30, 5 * noise);
+    let run = 0;
+    for (let t = ref1; t < depth; t++) {
+      run = dist(at(line, t)) > limit ? run + 1 : 0;
+      if (run === 3) {
+        found.push(t - 2);
+        break;
+      }
+    }
+  }
+  const sorted = [...found].sort((a, b) => a - b);
+  const q = (f: number) => sorted[Math.min(sorted.length - 1, Math.floor(f * sorted.length))] ?? 0;
+  return { px: median(found), share: lines ? found.length / lines : 0, spread: q(0.75) - q(0.25) };
+}
+
+/**
+ * Bordures d'une face redressée (`mm` pixels par millimètre, 20 pour le scanner) : centrage gauche/droite et
+ * haut/bas, comme PSA le juge (« 55/45 »). null si aucune bordure n'est reconnaissable (photo inexploitable).
+ */
+export function borders(rgba: Uint8ClampedArray, w: number, h: number, mm = 20): Borders | null {
+  const m: Record<Side, ReturnType<typeof side>> = {
+    gauche: side(rgba, w, h, "gauche", mm),
+    droite: side(rgba, w, h, "droite", mm),
+    haut: side(rgba, w, h, "haut", mm),
+    bas: side(rgba, w, h, "bas", mm),
+  };
+  const all = Object.values(m);
+  if (all.some((r) => r.share < 0.3)) return null;
+  const v = (s: Side) => Math.round((m[s].px / mm) * 100) / 100;
+  const pct = (a: number, b: number) => Math.round((1000 * Math.max(a, b)) / (a + b)) / 10;
+  const [g, d, ht, b] = [v("gauche"), v("droite"), v("haut"), v("bas")];
+  return {
+    gauche: g,
+    droite: d,
+    haut: ht,
+    bas: b,
+    lr: pct(g, d),
+    tb: pct(ht, b),
+    sure: all.every((r) => r.share >= 0.7 && r.spread <= 0.5 * mm),
+  };
+}

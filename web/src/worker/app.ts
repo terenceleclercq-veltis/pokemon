@@ -3,8 +3,20 @@ import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { secureHeaders } from "hono/secure-headers";
 import type * as z from "zod/mini";
+import { APIError } from "@anthropic-ai/sdk";
+import {
+  ANALYSE_STEPS,
+  analyseBody,
+  AnalyseError,
+  askClaude,
+  costUsd,
+  REQUIRED_STEPS,
+  verdict,
+  type PhotoRef,
+} from "./analyse";
 import { devBypass, verifyAccessJwt } from "./auth";
 import { candidates, cardFromTcgdex, nameMatches } from "./catalog";
+import { checkFederation, claude, claudeConfigured } from "./claude";
 import { audit, cardById, cardTier, cardsOf, loadAll } from "./db";
 import {
   cheapestPerTier,
@@ -29,6 +41,7 @@ import {
   budgetBody,
   photoParam,
   photoQuery,
+  psaBody,
   scanParam,
   vitrineBody,
   detailsBody,
@@ -428,7 +441,7 @@ app.put("/api/photos/:id/thumb", async (c) => {
 app.get("/api/species/:num/scans", async (c) => {
   const num = speciesNum(c);
   type PhotoRow = { id: string; scan_id: string; step: string; width: number; height: number; sharpness: number };
-  const [scans, photos] = await c.env.DB.batch([
+  const [scans, photos, analyses] = await c.env.DB.batch([
     c.env.DB.prepare("SELECT id, card_id, created_at FROM scan WHERE species_num = ? ORDER BY created_at DESC").bind(
       num,
     ),
@@ -436,15 +449,23 @@ app.get("/api/species/:num/scans", async (c) => {
       `SELECT p.id, p.scan_id, p.step, p.width, p.height, p.sharpness FROM photo p JOIN scan s ON s.id = p.scan_id
        WHERE s.species_num = ? ORDER BY p.created_at`,
     ).bind(num),
+    c.env.DB.prepare(
+      `SELECT a.* FROM analyse a JOIN scan s ON s.id = a.scan_id WHERE s.species_num = ? ORDER BY a.created_at DESC`,
+    ).bind(num),
   ]);
   const byScan = new Map<string, Omit<PhotoRow, "scan_id">[]>();
   for (const { scan_id, ...p } of (photos?.results ?? []) as PhotoRow[])
     byScan.set(scan_id, [...(byScan.get(scan_id) ?? []), p]);
+  const analysesOf = new Map<string, ReturnType<typeof analyseOut>[]>();
+  for (const a of (analyses?.results ?? []) as AnalyseRow[])
+    analysesOf.set(a.scan_id, [...(analysesOf.get(a.scan_id) ?? []), analyseOut(a)]);
   return c.json({
     scans: ((scans?.results ?? []) as { id: string; card_id: string | null; created_at: string }[]).map((s) => ({
       ...s,
       photos: byScan.get(s.id) ?? [],
+      analyses: analysesOf.get(s.id) ?? [],
     })),
+    claude: await claudeStatus(c.env),
   });
 });
 
@@ -470,11 +491,186 @@ app.delete("/api/scans/:id", async (c) => {
     throw fail(404, "scan introuvable");
   const { results } = await c.env.DB.prepare("SELECT id FROM photo WHERE scan_id = ?").bind(id).all<{ id: string }>();
   await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM analyse WHERE scan_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM photo WHERE scan_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM scan WHERE id = ?").bind(id),
     audit(c.env.DB, c.get("user"), "scan.delete", id),
   ]);
   if (results.length) await c.env.PHOTOS.delete(results.flatMap((p) => [PHOTO_KEY(p.id), THUMB_KEY(p.id)]));
+  return c.json({ ok: true });
+});
+
+// --- pré-évaluation PSA par Claude -------------------------------------------------------------------------------
+
+interface AnalyseRow {
+  id: string;
+  scan_id: string;
+  created_at: string;
+  finished_at: string | null;
+  state: "en_cours" | "terminee" | "echec";
+  model: string;
+  centrage: string | null;
+  constats: string | null;
+  verdict: string | null;
+  plafond: number | null;
+  raisons: string | null;
+  cout_usd: number | null;
+  erreur: string | null;
+  note_psa: number | null;
+}
+/** Au-delà, une analyse « en cours » a été interrompue (onglet fermé, réseau coupé) : on peut la relancer. */
+const ANALYSE_TIMEOUT_MS = 10 * 60_000;
+const json = (v: string | null): unknown => (v ? JSON.parse(v) : null);
+const analyseOut = (a: AnalyseRow) => ({
+  id: a.id,
+  created_at: a.created_at,
+  finished_at: a.finished_at,
+  state: a.state === "en_cours" && Date.now() - Date.parse(a.created_at) > ANALYSE_TIMEOUT_MS ? "interrompue" : a.state,
+  model: a.model,
+  centrage: json(a.centrage),
+  constats: json(a.constats),
+  verdict: a.verdict,
+  plafond: a.plafond,
+  raisons: json(a.raisons),
+  cout_usd: a.cout_usd,
+  erreur: a.erreur,
+  note_psa: a.note_psa,
+});
+const startOfDay = () => new Date(new Date().setUTCHours(0, 0, 0, 0)).toISOString();
+const perDay = (env: Env) => Math.max(0, Number(env.ANALYSES_PAR_JOUR) || 0);
+
+async function claudeStatus(env: Env) {
+  const done = await env.DB.prepare("SELECT COUNT(*) AS n FROM analyse WHERE created_at >= ?")
+    .bind(startOfDay())
+    .first<{ n: number }>();
+  return {
+    configured: claudeConfigured(env),
+    model: env.CLAUDE_MODEL,
+    par_jour: perDay(env),
+    restantes: Math.max(0, perDay(env) - (done?.n ?? 0)),
+  };
+}
+
+/** État de l'analyse ; `?verifier=1` : échange de jeton réel avec Anthropic (gratuit), pour valider la console. */
+app.get("/api/claude", async (c) => {
+  const status = await claudeStatus(c.env);
+  if (c.req.query("verifier") !== "1") return c.json(status);
+  return c.json({ ...status, federation: status.configured ? await checkFederation(c.env) : null });
+});
+
+/**
+ * Lance l'analyse d'un scan complet (recto, verso, 8 coins). Réponse en NDJSON, ligne par ligne : l'avancement
+ * ({etape}), puis {analyse} ou {erreur}. La connexion reste ouverte pendant que Claude examine les photos (une à
+ * deux minutes) ; des lignes régulières la maintiennent.
+ */
+app.post("/api/scans/:id/analyses", async (c) => {
+  const { id } = parse(scanParam, c.req.param());
+  const body = parse(analyseBody, await jsonBody(c));
+  if (!claudeConfigured(c.env)) throw fail(409, "analyse par Claude pas encore configurée");
+  const db = c.env.DB;
+  if (!(await db.prepare("SELECT 1 FROM scan WHERE id = ?").bind(id).first())) throw fail(404, "scan introuvable");
+  const { results: photos } = await db
+    .prepare("SELECT id, step, mime FROM photo WHERE scan_id = ?")
+    .bind(id)
+    .all<PhotoRef>();
+  const missing = REQUIRED_STEPS.filter((s) => !photos.some((p) => p.step === s));
+  if (missing.length) throw fail(409, `scan incomplet : il manque ${missing.join(", ")}`);
+  const recent = new Date(Date.now() - ANALYSE_TIMEOUT_MS).toISOString();
+  if (
+    await db
+      .prepare("SELECT 1 FROM analyse WHERE scan_id = ? AND state = 'en_cours' AND created_at > ?")
+      .bind(id, recent)
+      .first()
+  )
+    throw fail(409, "analyse déjà en cours pour ce scan");
+  if ((await claudeStatus(c.env)).restantes <= 0)
+    throw fail(429, `limite de ${perDay(c.env)} analyses par jour atteinte : réessaie demain`);
+
+  const aid = crypto.randomUUID();
+  const model = c.env.CLAUDE_MODEL;
+  await db.batch([
+    db
+      .prepare(
+        "INSERT INTO analyse (id, scan_id, created_at, state, model, centrage) VALUES (?1, ?2, ?3, 'en_cours', ?4, ?5)",
+      )
+      .bind(aid, id, new Date().toISOString(), model, JSON.stringify(body.centrage)),
+    audit(db, c.get("user"), "analyse.start", `${id} ${aid}`),
+  ]);
+  const ordered = ANALYSE_STEPS.flatMap((s) => photos.filter((p) => p.step === s));
+
+  const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+  const writer = writable.getWriter();
+  const enc = new TextEncoder();
+  const emit = (line: unknown) => {
+    // client parti : on termine quand même l'analyse (résultat enregistré, visible au prochain affichage)
+    writer.write(enc.encode(JSON.stringify(line) + "\n")).catch(() => undefined);
+  };
+  const started = Date.now();
+  const tick = setInterval(() => {
+    emit({ etape: "analyse", secondes: Math.round((Date.now() - started) / 1000) });
+  }, 10_000);
+  const work = (async () => {
+    const now = () => new Date().toISOString();
+    try {
+      const out = await askClaude(
+        claude(c.env),
+        model,
+        ordered,
+        async (pid) => (await c.env.PHOTOS.get(PHOTO_KEY(pid)))?.arrayBuffer() ?? null,
+        (etape) => {
+          emit({ etape, photos: ordered.length });
+        },
+      );
+      const r = verdict(out.findings, body.centrage);
+      await db
+        .prepare(
+          `UPDATE analyse SET state = 'terminee', finished_at = ?1, constats = ?2, verdict = ?3, plafond = ?4, raisons = ?5,
+           input_tokens = ?6, output_tokens = ?7, cout_usd = ?8 WHERE id = ?9`,
+        )
+        .bind(
+          now(),
+          JSON.stringify(out.findings),
+          r.verdict,
+          r.plafond,
+          JSON.stringify({ limites: r.limites, incertains: r.incertains }),
+          out.input_tokens,
+          out.output_tokens,
+          costUsd(model, out.input_tokens, out.output_tokens),
+          aid,
+        )
+        .run();
+    } catch (e) {
+      const message =
+        e instanceof AnalyseError
+          ? e.message
+          : e instanceof APIError
+            ? `Claude a répondu ${String(e.status)}`
+            : "échec de l'appel à Claude";
+      console.error(JSON.stringify({ msg: "analyse en échec", id: aid, err: String(e).slice(0, 300) }));
+      await db
+        .prepare("UPDATE analyse SET state = 'echec', finished_at = ?1, erreur = ?2 WHERE id = ?3")
+        .bind(now(), message, aid)
+        .run();
+    } finally {
+      clearInterval(tick);
+      const row = await db.prepare("SELECT * FROM analyse WHERE id = ?").bind(aid).first<AnalyseRow>();
+      emit(row?.state === "terminee" ? { analyse: analyseOut(row) } : { erreur: row?.erreur ?? "échec de l'analyse" });
+      // fermeture sans attendre la lecture : le client lit à son rythme (et les tests après coup)
+      void writer.close().catch(() => undefined);
+    }
+  })();
+  c.executionCtx.waitUntil(work);
+  return new Response(readable, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8" } });
+});
+
+/** Note PSA réellement obtenue pour la carte analysée : mesure, à terme, la fiabilité des pré-évaluations. */
+app.put("/api/analyses/:id/psa", async (c) => {
+  const { id } = parse(scanParam, c.req.param());
+  const { note } = parse(psaBody, await jsonBody(c));
+  const r = await c.env.DB.prepare("UPDATE analyse SET note_psa = ? WHERE id = ? AND state = 'terminee'")
+    .bind(note, id)
+    .run();
+  if (!r.meta.changes) throw fail(404, "analyse introuvable");
   return c.json({ ok: true });
 });
 

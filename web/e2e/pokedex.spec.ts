@@ -656,6 +656,120 @@ test("scanner guidé : recto pris tout seul, gros plan, verso par l'appareil pho
   await page.request.delete("/api/species/7/owned", { headers });
 });
 
+test("pré-évaluation PSA : centrage mesuré, analyse en flux, verdict et note obtenue", async ({ page }) => {
+  const headers = { "X-Requested-With": "pokedex" };
+  const dex = (await (await page.request.get("/api/pokedex")).json()) as {
+    species: { num: number; cards: { id: string }[] }[];
+  };
+  const card = dex.species.find((x) => x.num === 9)?.cards[0]?.id ?? "";
+  await page.request.put("/api/species/9/owned", { headers, data: { card_id: card } });
+  // scan complet et réponses de Claude simulés (l'analyse réelle est couverte par les tests d'intégration)
+  const scan = "11111111-1111-4111-8111-111111111111";
+  const steps = [
+    "recto",
+    "verso",
+    ...["recto", "verso"].flatMap((f) => ["hg", "hd", "bd", "bg"].map((c) => `${f}-${c}`)),
+  ];
+  const photos = steps.map((step, i) => ({
+    id: `22222222-2222-4222-8222-${String(i).padStart(12, "0")}`,
+    step,
+    width: 1260,
+    height: 1760,
+    sharpness: 900,
+  }));
+  const corner = { etat: "parfait", confiance: "elevee", detail: "" };
+  const edge = { blanchiment: "aucun", confiance: "elevee", detail: "" };
+  const corners = { hg: corner, hd: corner, bd: corner, bg: corner };
+  const edges = { h: edge, d: edge, b: edge, g: edge };
+  const analysis = {
+    id: "33333333-3333-4333-8333-333333333333",
+    created_at: new Date().toISOString(),
+    finished_at: new Date().toISOString(),
+    state: "terminee",
+    model: "claude-opus-5-5",
+    centrage: { recto: { gauche: 2.9, droite: 3.3, haut: 3, bas: 3.1, lr: 53.2, tb: 50.8, sure: true }, verso: null },
+    constats: {
+      qualite_photos: { exploitable: true, problemes: [] },
+      coins: {
+        recto: corners,
+        verso: { ...corners, hd: { etat: "leger", confiance: "moyenne", detail: "point blanc" } },
+      },
+      bords: { recto: edges, verso: edges },
+      surface: {
+        recto: { gravite: "aucune", defauts: [], confiance: "elevee" },
+        verso: { gravite: "aucune", defauts: [], confiance: "moyenne" },
+      },
+      centrage_visuel: { recto: "bon", verso: "bon" },
+      resume: "Très belle carte ; un point blanc au coin haut droit du verso.",
+    },
+    verdict: "probable_9",
+    plafond: 9,
+    raisons: { limites: ["coin haut droit du verso (léger)"], incertains: ["centrage du verso (à l'œil : bon)"] },
+    cout_usd: 0.21,
+    erreur: null,
+    note_psa: null,
+  };
+  let analysed = false;
+  let sent: unknown;
+  let psa: unknown;
+  await page.route("**/api/species/9/scans", (route) =>
+    route.fulfill({
+      json: {
+        scans: [
+          {
+            id: scan,
+            card_id: card,
+            created_at: new Date().toISOString(),
+            photos,
+            analyses: analysed ? [analysis] : [],
+          },
+        ],
+        claude: { configured: true, model: "claude-opus-5-5", par_jour: 10, restantes: analysed ? 8 : 9 },
+      },
+    }),
+  );
+  await page.route("**/api/photos/**", (route) => route.fulfill({ contentType: "image/bmp", body: cardBmp(630, 880) }));
+  await page.route(`**/api/scans/${scan}/analyses`, async (route) => {
+    sent = route.request().postDataJSON();
+    analysed = true;
+    const lines = [{ etape: "envoi", photos: 10 }, { etape: "analyse", photos: 10 }, { analyse: analysis }];
+    await route.fulfill({
+      contentType: "application/x-ndjson; charset=utf-8",
+      body: lines.map((l) => JSON.stringify(l)).join("\n") + "\n",
+    });
+  });
+  await page.route(`**/api/analyses/${analysis.id}/psa`, async (route) => {
+    psa = route.request().postDataJSON();
+    await route.fulfill({ json: { ok: true } });
+  });
+
+  await page.goto("/#p=9");
+  const dlg = page.locator("#detail");
+  await expect(dlg.locator(".an-run")).toContainText("9 restantes aujourd'hui");
+  await dlg.getByRole("button", { name: "🔍 Pré-évaluer avec Claude" }).click();
+  await expect(page.locator(".toast")).toContainText("Pré-évaluation terminée.");
+  // centrage mesuré dans le navigateur sur les vues entières, envoyé avec la demande
+  expect(Object.keys((sent as { centrage: object }).centrage)).toEqual(["recto", "verso"]);
+  const result = dlg.locator(".an-result");
+  await expect(result.locator(".an-verdict")).toHaveText("Probable PSA 9 · note maximale plausible : 9");
+  await expect(result).toContainText("Limité par : coin haut droit du verso (léger).");
+  await expect(result).toContainText("recto : 53,2/46,8 gauche-droite, 50,8/49,2 haut-bas");
+  await expect(result).toContainText("verso : non mesurable sur la photo (à l'œil : bon)");
+  await expect(result.locator(".an-grid").first()).toContainText("léger");
+  await expect(result.locator(".an-foot")).toContainText("Claude Opus 5.5");
+  await expect(result.locator(".an-foot")).toContainText("0,21 $");
+  await expect(dlg.locator(".an-run")).toContainText("8 restantes aujourd'hui");
+  // note PSA réellement obtenue
+  await result.getByLabel("Note PSA obtenue").selectOption("9");
+  await expect(page.locator(".toast").last()).toContainText("Note PSA enregistrée.");
+  expect(psa).toEqual({ note: 9 });
+  const violations = (
+    await new AxeBuilder({ page }).include("#detail").withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze()
+  ).violations.filter((v) => v.impact === "serious" || v.impact === "critical");
+  expect(violations.map((v) => v.id)).toEqual([]);
+  await page.request.delete("/api/species/9/owned", { headers });
+});
+
 test("réglages : liste d'envies et export", async ({ page, context, isMobile }) => {
   test.skip(isMobile, "presse-papiers testé sur desktop");
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);

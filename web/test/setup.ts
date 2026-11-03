@@ -18,6 +18,7 @@ beforeEach(async () => {
   await env.DB.batch([
     ...[
       "audit_log",
+      "analyse",
       "photo",
       "scan",
       "settings",

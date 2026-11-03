@@ -1,5 +1,6 @@
 // Photos de ta carte dans la fiche : bouton « Scanner la carte », dernier scan en vignettes (visionneuse), scans
 // précédents, suppression.
+import { analysisBlock, type Analyse, type ClaudeStatus } from "./analysis";
 import { api, type Species } from "./api";
 import { $, $as, action, h, toast } from "./dom";
 import { openScanner, scanSteps } from "./scanner";
@@ -7,25 +8,31 @@ import { openScanner, scanSteps } from "./scanner";
 interface PhotoMeta {
   id: string;
   step: string;
+  width: number;
 }
 interface ScanMeta {
   id: string;
   created_at: string;
   photos: PhotoMeta[];
+  analyses: Analyse[];
+}
+interface Scans {
+  scans: ScanMeta[];
+  claude: ClaudeStatus;
 }
 
 const STEPS = scanSteps(true);
 const day = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
 const ORDER = new Map(STEPS.map((s, i) => [s.id, i]));
 const LABEL = new Map(STEPS.map((s) => [s.id, s.label]));
-/** Scans par espèce, lus une fois puis gardés jusqu'au prochain scan ou à une suppression. */
-const cache = new Map<number, Promise<ScanMeta[]>>();
+/** Scans par espèce, lus une fois puis gardés jusqu'au prochain scan, analyse ou suppression. */
+const cache = new Map<number, Promise<Scans>>();
 
-function load(num: number): Promise<ScanMeta[]> {
+function load(num: number): Promise<Scans> {
   let p = cache.get(num);
   if (!p) {
     p = api(`/api/species/${num}/scans`)
-      .then(async (r) => ((await r.json()) as { scans: ScanMeta[] }).scans)
+      .then(async (r) => (await r.json()) as Scans)
       .catch((e: unknown) => {
         cache.delete(num);
         throw e;
@@ -95,7 +102,7 @@ function gallery(scan: ScanMeta): HTMLElement {
   );
 }
 
-function render(s: Species, scans: ScanMeta[], changed: () => void): Node[] {
+function render(s: Species, { scans, claude }: Scans, changed: () => void): Node[] {
   if (!scans.length) return [h("p", { class: "mut" }, "Aucune photo : le scanner prend recto, verso et gros plans.")];
   const remove = (scan: ScanMeta) =>
     h(
@@ -125,6 +132,10 @@ function render(s: Species, scans: ScanMeta[], changed: () => void): Node[] {
       remove(last),
     ),
     gallery(last),
+    analysisBlock(last, claude, () => {
+      cache.delete(s.num);
+      changed();
+    }),
     older.length
       ? h(
           "details",
@@ -153,8 +164,8 @@ export function scansBlock(s: Species, changed: () => void): HTMLElement | null 
   if (!s.owned) return null;
   const list = h("div", { class: "scan-list" }, h("p", { class: "mut" }, "Chargement des photos…"));
   load(s.num)
-    .then((scans) => {
-      list.replaceChildren(...render(s, scans, changed));
+    .then((data) => {
+      list.replaceChildren(...render(s, data, changed));
     })
     .catch(() => {
       list.replaceChildren(h("p", { class: "mut" }, "Photos indisponibles pour le moment (hors ligne ?)."));

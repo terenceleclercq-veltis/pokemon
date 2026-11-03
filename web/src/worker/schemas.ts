@@ -63,6 +63,10 @@ export const scanStep = z.string().check(z.regex(/^(recto|verso)(-(hg|hd|bd|bg|h
 const uuid = z.string().check(z.regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/));
 export const scanParam = z.object({ id: uuid });
 export const photoParam = z.object({ id: uuid, step: scanStep });
+/** Note PSA réellement obtenue (demi-points acceptés), null pour l'effacer. */
+export const psaBody = z.strictObject({
+  note: z.nullable(z.number().check(z.gte(1), z.lte(10), z.multipleOf(0.5))),
+});
 const px = z.coerce.number().check(z.int(), z.gt(0), z.lte(12_000));
 const coord = z.number().check(z.gte(-1), z.lte(12_001));
 /** Description d'une photo envoyée (corps : l'image elle-même, en JPEG ou WebP). */
