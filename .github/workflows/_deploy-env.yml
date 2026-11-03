@@ -88,6 +88,22 @@ jobs:
         run: |
           code=$(curl -sS -o /dev/null -w '%{http_code}' --max-redirs 0 "$APP_URL/api/pokedex") || true
           case "$code" in 302|401|403) echo "anonyme refusé ($code)";; *) echo "::error::accès anonyme non bloqué ($code)"; exit 1;; esac
+      # Échange de jeton avec Anthropic (gratuit, aucun appel au modèle) : signale une fédération Claude absente ou
+      # refusée, sans bloquer le déploiement (l'analyse reste alors désactivée).
+      - name: Fédération Claude (information)
+        continue-on-error: true
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          curl -sS --max-time 30 -o claude.json \
+            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            "$APP_URL/api/claude?verifier=1" || true
+          cat claude.json || true
+          echo
+          if grep -q '"federation":{"ok":true}' claude.json; then echo "fédération Claude : échange de jeton accepté"
+          else echo "::warning::fédération Claude non configurée ou refusée (docs/gitops.md, étape 7)"; fi
 
       - name: Rollback automatique
         if: failure() && steps.before.outputs.version != ''

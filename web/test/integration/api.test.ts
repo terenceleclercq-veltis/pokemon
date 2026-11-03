@@ -990,12 +990,17 @@ describe("santé et service token CI", () => {
     expect(r.status).toBe(503); // le jeu de test n'a que 3 espèces
     expect(await r.json()).toMatchObject({ ok: false, species: 3 });
   });
-  it("le service token ne lit que /api/health", async () => {
+  it("le service token ne lit que /api/health et l'état de la fédération Claude", async () => {
     const { signJwt } = await import("../helpers");
     const token = await signJwt({ email: undefined, common_name: "ci-token.access" });
     const headers = { "Cf-Access-Jwt-Assertion": token };
     expect((await call("/api/health", { auth: false, headers })).status).toBe(503);
+    expect((await call("/api/claude", { auth: false, headers })).status).toBe(200);
     expect((await call("/api/pokedex", { auth: false, headers })).status).toBe(403);
+    expect(
+      (await call(`/api/scans/${crypto.randomUUID()}/analyses`, { auth: false, headers, method: "POST", json: {} }))
+        .status,
+    ).toBe(403);
     expect(
       (await call("/api/species/1/owned", { auth: false, headers, method: "PUT", json: { tier: "IR" } })).status,
     ).toBe(403);
