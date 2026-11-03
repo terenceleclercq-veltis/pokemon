@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   borders,
   CARD_RATIO,
+  cutCorners,
   detectCard,
   framing,
   glare,
@@ -187,22 +188,34 @@ describe("scanner : redressement", () => {
   });
 });
 
-/** Face redressée synthétique (`mm` px/mm) : bordure unie, liseré blanchi au bord, illustration texturée. */
+/** Fond sombre (tapis) des faces synthétiques. */
+const MAT = [30, 24, 28];
+
+/**
+ * Face redressée synthétique (`mm` px/mm) : carte aux coins arrondis (3 mm) sur le tapis, bordure unie, liseré blanchi
+ * au bord, illustration texturée. `cut` : mm de carte perdus sous le bas de l'image (bord mal repéré au redressement).
+ */
 function face(
   mm: number,
   b: { g: number; d: number; h: number; b: number },
   border: number[],
   art: (x: number, y: number) => number[],
+  cut = 0,
 ) {
   const [w, h] = [63 * mm, 88 * mm];
+  const tall = 88 + cut;
   const rgba = new Uint8ClampedArray(w * h * 4);
   let seed = 7;
   const noise = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648 - 0.5) * 8;
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
-      const inBorder = x < b.g * mm || x >= w - b.d * mm || y < b.h * mm || y >= h - b.b * mm;
-      const edge = x < 0.15 * mm || x >= w - 0.15 * mm || y < 0.15 * mm || y >= h - 0.15 * mm;
-      const c = edge ? [245, 245, 245] : inBorder ? border : art(x, y);
+      // position sur la carte, en mm
+      const [u, v] = [(x + 0.5) / mm, (y + 0.5) / mm];
+      const dx = Math.max(3 - u, u - 60, 0);
+      const dy = Math.max(3 - v, v - (tall - 3), 0);
+      const inBorder = u < b.g || u >= 63 - b.d || v < b.h || v >= tall - b.b;
+      const edge = u < 0.15 || u >= 63 - 0.15 || v < 0.15 || v >= tall - 0.15;
+      const c = Math.hypot(dx, dy) > 3 ? MAT : edge ? [245, 245, 245] : inBorder ? border : art(x, y);
       const i = (y * w + x) * 4;
       for (let k = 0; k < 3; k++) rgba[i + k] = c[k]! + noise();
       rgba[i + 3] = 255;
@@ -227,6 +240,7 @@ describe("scanner : centrage", () => {
     expect(r.lr).toBeLessThan(59.5);
     expect(r.tb).toBeLessThan(51.5);
     expect(r.sure).toBe(true);
+    expect(r.coupe).toEqual([]);
   });
   it("verso : bordure bleue, motif plus sombre ; image uniforme : pas de mesure", () => {
     const mm = 10;
@@ -239,7 +253,61 @@ describe("scanner : centrage", () => {
     expect(r.tb).toBeGreaterThan(57);
     expect(r.tb).toBeLessThan(59);
     expect(r.lr).toBeLessThan(51);
+    expect(r.sure).toBe(true);
     const flat = face(mm, { g: 3, d: 3, h: 3, b: 3 }, [200, 200, 200], () => [200, 200, 200]);
     expect(borders(flat.rgba, flat.w, flat.h, mm)).toBeNull();
   });
+  it("carte coupée en bas (bord mal repéré) : coins du bas signalés, bordure trop fine, mesure non fiable", () => {
+    const mm = 10;
+    const art = (x: number, y: number) => (((x >> 4) + (y >> 4)) % 2 ? [40, 120, 200] : [200, 60, 90]);
+    const { rgba, w, h } = face(mm, { g: 3, d: 3, h: 3, b: 3 }, [200, 190, 185], art, 2);
+    expect(cutCorners(rgba, w, h, mm)).toEqual(["bd", "bg"]);
+    const r = borders(rgba, w, h, mm)!;
+    // 1 mm de bordure restant en bas, lue entre 1 et 1,5 mm : centrage haut-bas faussé, au-delà de 65/35
+    expect(r.bas).toBeLessThan(1.5);
+    expect(r.tb).toBeGreaterThan(65);
+    expect(r).toMatchObject({ sure: false, coupe: ["bd", "bg"] });
+  });
+  it("verso sur fond sombre : bordure bleu foncé confondue avec le fond, carte coupée ; sur fond clair : entière", () => {
+    const [w, h] = [480, 640];
+    const shot = (bg: number[]) => {
+      const rgba = back(w, h, bg);
+      const g = gray(rgba, w, h);
+      const d = detectCard(g, w, h)!;
+      const q = refineQuad(g, w, h, d.quad);
+      return cutCorners(warp(rgba, w, h, q, 630, 880), 630, 880, 10);
+    };
+    expect(shot([55, 42, 45])).toEqual(["hg", "hd", "bd", "bg"]);
+    expect(shot([235, 235, 230])).toEqual([]);
+  });
 });
+
+/** Verso (bordure bleu foncé de 3,5 mm, motif bleu clair) aux coins arrondis, tourné de 4°, sur le fond `bg`. */
+function back(w: number, h: number, bg: number[]) {
+  const rgba = new Uint8ClampedArray(w * h * 4);
+  const s = (h * 0.8) / 88; // px par mm
+  const a = (4 * Math.PI) / 180;
+  const color = (x: number, y: number) => {
+    // repère de la carte, en mm depuis son coin haut gauche
+    const [dx, dy] = [x - w / 2, y - h / 2];
+    const u = (dx * Math.cos(a) + dy * Math.sin(a)) / s + 31.5;
+    const v = (-dx * Math.sin(a) + dy * Math.cos(a)) / s + 44;
+    const out = Math.hypot(Math.max(3 - u, u - 60, 0), Math.max(3 - v, v - 85, 0)) > 3;
+    if (u < 0 || u > 63 || v < 0 || v > 88 || out) return bg;
+    if (u < 3.5 || u > 59.5 || v < 3.5 || v > 84.5) return [40, 38, 64];
+    return Math.sin(u / 3 + v / 5) > 0 ? [110, 150, 200] : [90, 130, 185];
+  };
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const sum = [0, 0, 0];
+      for (let sy = 0; sy < 3; sy++)
+        for (let sx = 0; sx < 3; sx++) {
+          const c = color(x + (sx + 0.5) / 3, y + (sy + 0.5) / 3);
+          for (let k = 0; k < 3; k++) sum[k]! += c[k]! / 9;
+        }
+      const i = (y * w + x) * 4;
+      for (let k = 0; k < 3; k++) rgba[i + k] = sum[k]!;
+      rgba[i + 3] = 255;
+    }
+  return rgba;
+}

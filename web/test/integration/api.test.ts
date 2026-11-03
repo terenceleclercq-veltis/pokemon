@@ -290,6 +290,20 @@ describe("pré-évaluation PSA par Claude", () => {
     expect(api.calls).toEqual([]);
   });
 
+  it("carte coupée sur la photo : coins enregistrés, la mesure cède la place à l'œil, centrage à confirmer", async () => {
+    mockOutbound({}, anthropicApi().handler);
+    const id = await scanWith();
+    const recto = { ...face(56.3, 70), bas: 1.2, sure: false, coupe: ["bd", "bg"] };
+    expect((await analyse(id, { centrage: { recto: { ...recto, coupe: ["x"] }, verso: null } })).status).toBe(400);
+    const result = (await lines(await analyse(id, { centrage: { ...centrage, recto } }))).at(-1)?.analyse;
+    expect(result).toMatchObject({
+      verdict: "candidat_10",
+      plafond: 10,
+      raisons: { limites: [], incertains: ["centrage du recto (à l'œil : bon ; mesure sur image rognée : 70/30)"] },
+      centrage: { recto },
+    });
+  });
+
   it("format imposé refusé par Anthropic (grammaire trop lourde) : repli sans format imposé, analyse réussie", async () => {
     const api = anthropicApi({ grammar: true });
     mockOutbound({}, api.handler);

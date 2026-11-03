@@ -5,6 +5,7 @@ import { api, type Species } from "./api";
 import { $, $as, action, h, toast } from "./dom";
 import {
   CARD_RATIO,
+  cutCorners,
   detectCard,
   framing,
   glare,
@@ -15,6 +16,7 @@ import {
   refineQuad,
   sharpness,
   warp,
+  type Corner,
   type Quad,
   type Rect,
   type Target,
@@ -36,6 +38,8 @@ interface Shot {
   /** Coins de la carte sur la photo d'origine (vues entières). */
   quad?: Quad;
   sharp: number;
+  /** Coins de l'image redressée où la carte est coupée (vues entières). */
+  cut?: Corner[];
 }
 interface Verdict {
   ok: boolean;
@@ -45,6 +49,8 @@ interface Verdict {
 }
 
 const SIDE = { recto: "Recto", verso: "Verso" } as const;
+/** Fond conseillé : sombre sous le recto (bordure claire), clair sous le verso (bordure bleu foncé). */
+const background = (step: Step | undefined) => (step?.side === "verso" ? "clair" : "sombre");
 const PART: Record<Target, string> = {
   hg: "coin haut gauche",
   hd: "coin haut droit",
@@ -72,6 +78,11 @@ const ZOOM_BOX = 0.7; // côté du cadre de gros plan, en part du petit côté d
 const HOLD = 4; // images valides d'affilée avant de déclencher
 const MAX_PIXELS = 16_000_000; // limite des canevas sur iOS
 const ZOOM_MAX_SIDE = 2000;
+/**
+ * Netteté minimale d'un gros plan (pleine résolution) : sur un vrai scan, les gros plans flous (téléphone trop près
+ * pour la mise au point) mesuraient 6 à 8, les nets 23 à 85 ; le contrôle en direct, relatif, ne les distingue pas.
+ */
+const ZOOM_MIN_SHARP = 12;
 
 let species: Species;
 let steps: Step[] = [];
@@ -198,7 +209,7 @@ function checkFull(rgba: Uint8ClampedArray, g: Uint8Array, w: number, hgt: numbe
   const d = detectCard(g, w, hgt);
   if (!d || d.area < 0.08) {
     prevQuad = null;
-    return keep("Pose la carte entière sur un fond sombre, dans le cadre.");
+    return keep(`Pose la carte entière sur un fond ${background(steps[current])}, dans le cadre.`);
   }
   const moved = prevQuad ? quadMotion(prevQuad, d.quad, w, hgt) : 1;
   prevQuad = d.quad;
@@ -373,7 +384,7 @@ async function fullShot(src: HTMLCanvasElement, hint?: Quad): Promise<Shot | nul
     w: FLAT_W * 0.8,
     h: FLAT_H * 0.8,
   });
-  return finish(out, 0.92, { quad: fine, sharp });
+  return finish(out, 0.92, { quad: fine, sharp, cut: cutCorners(flat, FLAT_W, FLAT_H, FLAT_W / 63) });
 }
 
 /** Gros plan : le cadre central à pleine résolution (ou toute la photo de l'appareil). */
@@ -386,7 +397,11 @@ async function zoomShot(src: HTMLCanvasElement, crop: boolean): Promise<Shot> {
   return finish(out, 0.92, { sharp: sharpness(g, out.width, out.height) });
 }
 
-async function finish(c: HTMLCanvasElement, quality: number, meta: { quad?: Quad; sharp: number }): Promise<Shot> {
+async function finish(
+  c: HTMLCanvasElement,
+  quality: number,
+  meta: { quad?: Quad; sharp: number; cut?: Corner[] },
+): Promise<Shot> {
   const blob = await toBlob(c, quality);
   const tw = 240;
   const [t, tctx] = canvas(tw, Math.round((c.height / c.width) * tw));
@@ -395,7 +410,22 @@ async function finish(c: HTMLCanvasElement, quality: number, meta: { quad?: Quad
   return { blob, thumb, url: URL.createObjectURL(blob), w: c.width, h: c.height, ...meta };
 }
 
-async function capture(v: Verdict): Promise<void> {
+/**
+ * Photo à refaire : gros plan flou (toujours), ou carte coupée sur la vue entière, sauf prise au déclencheur (le
+ * centrage sera alors marqué incertain à l'analyse).
+ */
+function flaw(step: Step, shot: Shot, manual: boolean): string | null {
+  if (step.target && shot.sharp < ZOOM_MIN_SHARP)
+    return "Gros plan flou : recule un peu le téléphone pour que la mise au point se fasse, puis réessaie.";
+  if (manual || !shot.cut?.length) return null;
+  const where = `Carte coupée sur la photo (${shot.cut.map((c) => PART[c]).join(", ")})`;
+  const keep = "ou touche le déclencheur pour garder la photo.";
+  return step.side === "verso"
+    ? `${where} : sur un fond sombre, la bordure bleu foncé du verso se perd. Pose la carte sur un fond clair (une feuille blanche), ${keep}`
+    : `${where} : recadre la carte entière, bien à plat, ${keep}`;
+}
+
+async function capture(v: Verdict, manual = false): Promise<void> {
   busy = true;
   clearTimeout(timer);
   const step = steps[current];
@@ -411,8 +441,10 @@ async function capture(v: Verdict): Promise<void> {
       const quad = v.quad?.map((p) => ({ x: p.x * k, y: p.y * k })) as Quad | undefined;
       shot = await fullShot(await grab((w, hgt) => (quad ? bbox(quad) : { x: 0, y: 0, w, h: hgt })), quad);
     }
-    if (shot) accept(step, shot);
-    else resume("Carte introuvable sur la photo : réessaie.");
+    const problem = shot && flaw(step, shot, manual);
+    if (!shot) resume("Carte introuvable sur la photo : réessaie.");
+    else if (problem) resume(problem, 2500);
+    else accept(step, shot);
   } catch {
     resume("La photo a échoué : réessaie.");
   }
@@ -436,7 +468,7 @@ async function fromFile(file: File): Promise<void> {
     ctx.drawImage(img, 0, 0, c.width, c.height);
     const shot = step.target ? await zoomShot(c, false) : await fullShot(c);
     if (shot) accept(step, shot);
-    else resume("Carte introuvable sur la photo : carte entière, fond sombre, sans reflet.");
+    else resume(`Carte introuvable sur la photo : carte entière, fond ${background(step)}, sans reflet.`);
   } catch {
     resume("Photo illisible : réessaie.");
   } finally {
@@ -444,11 +476,12 @@ async function fromFile(file: File): Promise<void> {
   }
 }
 
-function resume(msg: string): void {
+/** Reprise du direct après un refus ; le message reste lisible `wait` ms. */
+function resume(msg: string, wait = 600): void {
   say(msg);
   busy = false;
   ok = 0;
-  timer = setTimeout(tick, 600);
+  timer = setTimeout(tick, wait);
 }
 
 function accept(step: Step, shot: Shot): void {
@@ -475,7 +508,9 @@ function next(done: string): void {
   }
   if (prev && prev.side !== step.side) {
     stopCamera();
-    say(`${done}. Retourne la carte (verso visible), puis touche « Continuer ».`);
+    say(
+      `${done}. Retourne la carte (verso visible), de préférence sur un fond clair (une feuille blanche) : sa bordure bleu foncé se perd sur un fond sombre. Puis touche « Continuer ».`,
+    );
     show("live");
     $("scan-shot").hidden = true;
     $("scan-skip").hidden = true;
@@ -620,7 +655,7 @@ export function initScanner(): void {
   $("scan-shot").addEventListener("click", () => {
     if (busy) return;
     // déclenchement manuel : la vue entière doit quand même montrer la carte
-    void capture({ ok: true, msg: "", quad: prevQuad ?? undefined });
+    void capture({ ok: true, msg: "", quad: prevQuad ?? undefined }, true);
   });
   $("scan-skip").addEventListener("click", () => {
     if (busy) return;

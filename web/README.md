@@ -20,13 +20,17 @@ dépenses avec le disponible de chaque mois, reste à payer détaillé. Illustra
 une recherche par son nom, montre les espèces dont une carte est de lui.
 Scanner guidé de tes cartes (fiche d'une espèce au binder, « Scanner la carte ») : caméra en direct, contrôle du
 cadrage, de la stabilité, de la netteté et des reflets, déclenchement automatique ; recto et verso redressés à plat
-(63 × 88 mm à 20 px/mm), gros plans des coins (et des bords au choix), repli sur l'appareil photo du téléphone ;
-photos privées stockées dans R2, vignettes et visionneuse dans la fiche.
+(63 × 88 mm à 20 px/mm ; vue refusée si un coin de l'image montre la carte au lieu du fond, signe d'un bord mal
+repéré : fond sombre sous le recto, clair sous le verso), gros plans des coins (et des bords au choix, refusés s'ils
+sont flous), repli sur l'appareil photo du téléphone ; photos privées stockées dans R2, vignettes et visionneuse dans
+la fiche.
 Pré-évaluation PSA d'un scan complet (recto, verso, 8 coins) par Claude Opus 5.5 : le site mesure lui-même le centrage
 sur les vues redressées, Claude relève l'état des coins, des bords et de la surface (format imposé, confiance par
-constat), et le verdict (« candidat PSA 10 », « probable 9 », « 8 ou moins », « photos insuffisantes ») découle de
-règles fixes ; coût affiché (~0,25 $), 10 analyses par jour au plus, note PSA réellement obtenue saisie pour mesurer
-la fiabilité. Indicatif : PSA examine la surface à la loupe.
+constat) et donne son impression du centrage, et le verdict (« candidat PSA 10 », « probable 9 », « 8 ou moins »,
+« photos insuffisantes ») découle de règles fixes ; une mesure de centrage douteuse (image rognée, bordures
+irrégulières, ou nettement pire que l'impression de Claude) ne plafonne pas la note : l'impression de Claude la
+remplace, à confirmer. Coût affiché (~0,25 $), 10 analyses par jour au plus, note PSA réellement obtenue saisie pour
+mesurer la fiabilité. Indicatif : PSA examine la surface à la loupe.
 
 ## Pile technique et pourquoi
 

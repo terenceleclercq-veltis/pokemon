@@ -441,16 +441,56 @@ export interface Borders {
   /** Part de la plus large des deux bordures, en % : 50 = parfait, 55 = « 55/45 ». */
   lr: number;
   tb: number;
-  /** Mesure fiable : bordure trouvée sur la plupart des lignes, positions resserrées. */
+  /**
+   * Mesure fiable : bordure trouvée sur la plupart des lignes, positions resserrées, et carte entière sur l'image
+   * (aucun coin coupé).
+   */
   sure: boolean;
+  /** Coins de l'image où la carte est coupée (bord mal repéré au redressement) : la mesure n'est alors pas fiable. */
+  coupe: Corner[];
 }
 
 type Side = "gauche" | "droite" | "haut" | "bas";
+/** Coin de l'image : haut gauche, haut droit, bas droit, bas gauche. */
+export type Corner = "hg" | "hd" | "bd" | "bg";
 
 const median = (v: number[]) => {
   const s = [...v].sort((a, b) => a - b);
   return s.length ? (s[Math.floor((s.length - 1) / 2)]! + s[Math.ceil((s.length - 1) / 2)]!) / 2 : 0;
 };
+
+/** Écart de couleur sous lequel un coin de l'image passe pour un morceau de carte. */
+const CUT_COLOR = 50;
+
+/**
+ * Coins où la carte est coupée sur une face redressée (`mm` pixels par millimètre). Bien détourée, la carte a ses
+ * coins arrondis (rayon d'environ 3 mm) : chaque coin de l'image montre le fond. Si un coin a au contraire la
+ * couleur de la carte à la même profondeur, 4 à 7 mm plus loin le long d'un des deux côtés, le bord a été mal
+ * repéré : la carte déborde de l'image à cet endroit (bordure rognée, centrage faussé).
+ */
+export function cutCorners(rgba: Uint8ClampedArray, w: number, h: number, mm = 20): Corner[] {
+  // couleur médiane d'un rectangle repéré depuis le coin : u le long du côté horizontal, v du côté vertical (mm)
+  const patch = (c: Corner, u0: number, u1: number, v0: number, v1: number) => {
+    const ch: [number[], number[], number[]] = [[], [], []];
+    const span = (a: number, b: number) => [Math.round(a * mm), Math.max(Math.round(a * mm) + 1, Math.round(b * mm))];
+    const [ua, ub] = span(u0, u1);
+    const [va, vb] = span(v0, v1);
+    for (let v = va!; v < vb!; v++)
+      for (let u = ua!; u < ub!; u++) {
+        const x = c === "hg" || c === "bg" ? u : w - 1 - u;
+        const y = c === "hg" || c === "hd" ? v : h - 1 - v;
+        if (x < 0 || y < 0 || x >= w || y >= h) continue;
+        const i = (y * w + x) * 4;
+        for (let k = 0; k < 3; k++) ch[k as 0 | 1 | 2].push(rgba[i + k] ?? 0);
+      }
+    return ch.map(median);
+  };
+  const gap = (a: number[], b: number[]) => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!);
+  return (["hg", "hd", "bd", "bg"] as const).filter((c) => {
+    const corner = patch(c, 0.1, 0.5, 0.1, 0.5);
+    return [patch(c, 4, 7, 0.2, 0.7), patch(c, 0.2, 0.7, 4, 7)].some((p) => gap(corner, p) < CUT_COLOR);
+  });
+}
 
 /**
  * Bordure d'un côté : sur des lignes perpendiculaires au bord (au milieu du côté, loin des coins arrondis), la
@@ -516,6 +556,7 @@ export function borders(rgba: Uint8ClampedArray, w: number, h: number, mm = 20):
   const v = (s: Side) => Math.round((m[s].px / mm) * 100) / 100;
   const pct = (a: number, b: number) => Math.round((1000 * Math.max(a, b)) / (a + b)) / 10;
   const [g, d, ht, b] = [v("gauche"), v("droite"), v("haut"), v("bas")];
+  const coupe = cutCorners(rgba, w, h, mm);
   return {
     gauche: g,
     droite: d,
@@ -523,6 +564,7 @@ export function borders(rgba: Uint8ClampedArray, w: number, h: number, mm = 20):
     bas: b,
     lr: pct(g, d),
     tb: pct(ht, b),
-    sure: all.every((r) => r.share >= 0.7 && r.spread <= 0.5 * mm),
+    sure: !coupe.length && all.every((r) => r.share >= 0.7 && r.spread <= 0.5 * mm),
+    coupe,
   };
 }

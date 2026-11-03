@@ -149,6 +149,8 @@ export const facesBorders = z.object({
   lr: pct,
   tb: pct,
   sure: z.boolean(),
+  /** Coins de l'image où la carte est coupée (absent des mesures faites avant cette vérification). */
+  coupe: z.optional(z.array(z.enum(CORNERS)).check(z.maxLength(4))),
 });
 /** Bordures du recto et du verso (null : non mesurables sur la photo). */
 export const centering = z.strictObject({ recto: z.nullable(facesBorders), verso: z.nullable(facesBorders) });
@@ -192,6 +194,22 @@ export interface Reasons {
 }
 
 /**
+ * Centrage d'une face : la mesure du site décide si elle est fiable et compatible avec l'examen visuel de Claude.
+ * Sinon (image rognée, bordures irrégulières, ou mesure nettement pire que l'impression visuelle, signe d'un bord
+ * mal repéré), c'est l'impression visuelle qui plafonne la note, comme constat incertain, à confirmer.
+ */
+function centeringReason(face: Face, m: Centering[Face], eye: (typeof VISUAL)[number]): [string, Grade, Confidence] {
+  const seen = `à l'œil : ${word(eye)}`;
+  if (!m) return [`centrage du ${face} (${seen})`, VISUAL_CAP[eye], "faible"];
+  const worst = Math.max(m.lr, m.tb);
+  const cap = centeringCap(face, worst);
+  const ratio = `${dec(worst)}/${dec(100 - worst)}`;
+  if (m.sure && VISUAL_CAP[eye] - cap < 2) return [`centrage du ${face} (${ratio})`, cap, "elevee"];
+  const doubt = m.coupe?.length ? "mesure sur image rognée" : m.sure ? "mesure contredite" : "mesure incertaine";
+  return [`centrage du ${face} (${seen} ; ${doubt} : ${ratio})`, VISUAL_CAP[eye], "faible"];
+}
+
+/**
  * Verdict par règles fixes : chaque critère plafonne la note (coin léger -> 9, visible -> 8…), la note retenue est le
  * plus bas des plafonds. Photos inexploitables, ou trop de constats incertains : « photos insuffisantes ».
  */
@@ -209,20 +227,7 @@ export function verdict(f: Findings, c: Centering): Reasons {
     }
     const s = f.surface[face];
     add(`surface du ${face} (${word(s.gravite)})`, SURFACE_CAP[s.gravite], s.confiance);
-    const m = c[face];
-    if (m) {
-      const worst = Math.max(m.lr, m.tb);
-      add(
-        `centrage du ${face} (${dec(worst)}/${dec(100 - worst)})`,
-        centeringCap(face, worst),
-        m.sure ? "elevee" : "faible",
-      );
-    } else
-      add(
-        `centrage du ${face} (à l'œil : ${word(f.centrage_visuel[face])})`,
-        VISUAL_CAP[f.centrage_visuel[face]],
-        "faible",
-      );
+    add(...centeringReason(face, c[face], f.centrage_visuel[face]));
   }
   const plafond = Math.min(...caps.map((x) => x.cap)) as Grade;
   const incertains = caps.filter((x) => !x.sure).map((x) => x.label);
@@ -279,7 +284,9 @@ Coins : « parfait » (pointe nette, aucun blanc), « leger » (micro-usure, poi
 Bords : blanchiment « aucun », « leger », « visible » ou « important ». Sur le verso bleu, le moindre blanc se voit.
 Surface de chaque face : rayures, lignes d'impression, bosses, plis, taches, défauts du holo ; gravité « aucune », \
 « legere », « visible » ou « importante », avec la liste des défauts vus.
-Centrage : impression visuelle seulement (« bon », « limite », « decale ») ; le site le mesure lui-même.
+Centrage : ton impression visuelle, face par face, en comparant les bordures opposées : « bon » (recto \
+jusqu'à 55/45 environ, verso jusqu'à 75/25), « limite » (recto vers 60/40, verso vers 90/10), « decale » (au-delà). \
+Le site mesure aussi le centrage ; ton impression sert de contrôle.
 Confiance de chaque constat : « elevee » si la zone est nette et bien éclairée, « moyenne », « faible » si elle est \
 floue, masquée par un reflet ou trop petite. Ne donne « parfait » ou « aucun » avec une confiance élevée que sur une \
 zone nette.
