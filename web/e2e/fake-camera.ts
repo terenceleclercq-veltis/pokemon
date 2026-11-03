@@ -1,10 +1,11 @@
 // Fausse caméra pour les tests du scanner : une carte (63 × 88, légèrement tournée) sur un tapis sombre, en vidéo
 // Y4M (lue en boucle par Chromium) et en image BMP (photo « appareil photo »). Générées avant les tests.
-import { writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
-export const FAKE_CAMERA = join(tmpdir(), "pokedex-fake-camera.y4m");
+// dans le projet (dossier ignoré par git), pas dans le dossier temporaire partagé du système
+export const FAKE_CAMERA = fileURLToPath(new URL("../.wrangler/fake-camera/camera.y4m", import.meta.url));
 
 /** Luminance (0-255) de la scène : carte claire texturée, bordure unie, tapis sombre ; anticrénelée. */
 function scene(w: number, h: number): Uint8Array {
@@ -68,5 +69,6 @@ export default function globalSetup(): void {
   const chroma = Buffer.alloc((w / 2) * (h / 2) * 2, 128);
   const frame = Buffer.concat([Buffer.from("FRAME\n"), Buffer.from(y), chroma]);
   const header = Buffer.from(`YUV4MPEG2 W${w} H${h} F10:1 Ip A1:1 C420jpeg\n`);
+  mkdirSync(dirname(FAKE_CAMERA), { recursive: true });
   writeFileSync(FAKE_CAMERA, Buffer.concat([header, ...Array.from({ length: 10 }, () => frame)]));
 }
