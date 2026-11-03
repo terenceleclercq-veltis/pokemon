@@ -1,7 +1,7 @@
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { vi } from "vitest";
-import type { Findings } from "../src/worker/analyse";
+import type { Findings, Reply } from "../src/worker/analyse";
 import worker from "../src/worker/index";
 
 export const TEAM = "equipe-test";
@@ -113,6 +113,23 @@ export const PERFECT: Findings = {
   resume: "Carte en très bon état.",
 };
 
+/** Les mêmes constats au format de réponse de Claude (listes d'entrées). */
+export function toReply(f: Findings): Reply {
+  const faces = ["recto", "verso"] as const;
+  return {
+    qualite_photos: f.qualite_photos,
+    coins: faces.flatMap((face) =>
+      (["hg", "hd", "bd", "bg"] as const).map((coin) => ({ face, coin, ...f.coins[face][coin] })),
+    ),
+    bords: faces.flatMap((face) =>
+      (["h", "d", "b", "g"] as const).map((bord) => ({ face, bord, ...f.bords[face][bord] })),
+    ),
+    surface: faces.map((face) => ({ face, ...f.surface[face] })),
+    centrage_visuel: f.centrage_visuel,
+    resume: f.resume,
+  };
+}
+
 interface AnthropicCall {
   method: string;
   path: string;
@@ -124,7 +141,7 @@ interface AnthropicCall {
  * Faux api.anthropic.com : échange de jeton fédéré, API Files (envoi, suppression), Messages. `exchange` / `messages` :
  * statut HTTP à renvoyer à la place d'une réponse normale.
  */
-export function anthropicApi(opts: { reply?: unknown; exchange?: number; messages?: number } = {}) {
+export function anthropicApi(opts: { reply?: unknown; exchange?: number; messages?: number; grammar?: boolean } = {}) {
   const calls: AnthropicCall[] = [];
   let n = 0;
   const error = (status: number, type: string) =>
@@ -157,12 +174,24 @@ export function anthropicApi(opts: { reply?: unknown; exchange?: number; message
     if (url.pathname === "/v1/messages") {
       call.body = await req.json();
       if (opts.messages) return error(opts.messages, "invalid_request_error");
+      // format imposé refusé comme le 03/11/2026 en production ; la demande sans format imposé passe
+      if (opts.grammar && (call.body as { output_config?: { format?: unknown } }).output_config?.format)
+        return Response.json(
+          {
+            type: "error",
+            error: {
+              type: "invalid_request_error",
+              message: "The compiled grammar is too large, which would cause performance issues.",
+            },
+          },
+          { status: 400 },
+        );
       return Response.json({
         id: "msg_test",
         type: "message",
         role: "assistant",
         model: "claude-opus-5-5",
-        content: [{ type: "text", text: JSON.stringify(opts.reply ?? PERFECT) }],
+        content: [{ type: "text", text: JSON.stringify(opts.reply ?? toReply(PERFECT)) }],
         stop_reason: "end_turn",
         stop_sequence: null,
         usage: { input_tokens: 30_000, output_tokens: 4_000 },

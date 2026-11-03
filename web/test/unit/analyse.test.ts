@@ -4,6 +4,7 @@ import {
   AnalyseError,
   askClaude,
   centeringCap,
+  arrange,
   costUsd,
   explain,
   FINDINGS_SCHEMA,
@@ -13,7 +14,7 @@ import {
   type Centering,
   type Findings,
 } from "../../src/worker/analyse";
-import { PERFECT } from "../helpers";
+import { PERFECT, toReply } from "../helpers";
 
 const corner = PERFECT.coins.recto.hg;
 const edge = PERFECT.bords.recto.h;
@@ -120,7 +121,7 @@ const message = (text: string, stop = "end_turn") => ({
 
 describe("pré-évaluation : appel à Claude", () => {
   it("photos envoyées par l'API Files, légendées dans l'ordre, puis supprimées", async () => {
-    const f = fakeClient(() => Promise.resolve(message(JSON.stringify(PERFECT))));
+    const f = fakeClient(() => Promise.resolve(message(JSON.stringify(toReply(PERFECT)))));
     const steps: string[] = [];
     const out = await askClaude(f.client, "claude-opus-5-5", photos, read, (s) => steps.push(s));
     expect(out).toEqual({ findings: PERFECT, input_tokens: 30_000, output_tokens: 4_000 });
@@ -150,7 +151,7 @@ describe("pré-évaluation : appel à Claude", () => {
       [message("{}", "refusal"), "Claude a refusé l'analyse"],
       [message("{", "max_tokens"), "réponse de Claude tronquée"],
       [message("pas du json"), "réponse de Claude illisible"],
-      [message(JSON.stringify({ ...PERFECT, resume: 3 })), "réponse de Claude hors format"],
+      [message(JSON.stringify({ ...toReply(PERFECT), resume: 3 })), "réponse de Claude hors format"],
     ] as const) {
       const f = fakeClient(() => Promise.resolve(reply));
       await expect(askClaude(f.client, "m", photos, read, () => undefined)).rejects.toThrow(error);
@@ -167,7 +168,7 @@ describe("pré-évaluation : appel à Claude", () => {
     expect(explain(credit)).toBe("Claude a répondu 400 (invalid_request_error) : Your credit balance is too low");
     expect(explain(new Error("réseau coupé"))).toBe("réseau coupé");
     expect(explain("?")).toBe("échec de l'appel à Claude");
-    const upload = fakeClient(() => Promise.resolve(message(JSON.stringify(PERFECT))));
+    const upload = fakeClient(() => Promise.resolve(message(JSON.stringify(toReply(PERFECT)))));
     upload.upload.mockRejectedValueOnce(credit);
     await expect(askClaude(upload.client, "m", photos, read, () => undefined)).rejects.toThrow(
       "envoi des photos refusé (recto) — Claude a répondu 400 (invalid_request_error) : Your credit balance is too low",
@@ -180,8 +181,38 @@ describe("pré-évaluation : appel à Claude", () => {
     );
     expect(refused.remove).toHaveBeenCalledTimes(10);
   });
+  it("réponse en listes, rangée par face, coin et bord ; entrée manquante refusée", () => {
+    expect(arrange(toReply(PERFECT))).toEqual(PERFECT);
+    const partial = toReply(PERFECT);
+    partial.coins = partial.coins.filter((c) => !(c.face === "verso" && c.coin === "hd"));
+    expect(() => arrange(partial)).toThrow("réponse de Claude incomplète : coin hd du verso manquant");
+  });
+  it("format imposé refusé (grammaire trop lourde) : même demande sans format imposé, JSON revalidé", async () => {
+    const grammar = Anthropic.APIError.generate(
+      400,
+      { type: "error", error: { type: "invalid_request_error", message: "The compiled grammar is too large" } },
+      undefined,
+      new Headers(),
+    );
+    let calls = 0;
+    const f = fakeClient(() =>
+      ++calls === 1
+        ? Promise.reject(grammar)
+        : Promise.resolve(message("```json\n" + JSON.stringify(toReply(PERFECT)) + "\n```")),
+    );
+    const out = await askClaude(f.client, "claude-opus-5-5", photos, read, () => undefined);
+    expect(out.findings).toEqual(PERFECT);
+    const [first, second] = f.create.mock.calls as unknown as [
+      [{ output_config: { format?: unknown }; system: string }],
+      [{ output_config: { format?: unknown }; system: string }],
+    ];
+    expect(first[0].output_config.format).toBeDefined();
+    expect(second[0].output_config).toEqual({ effort: "high" });
+    expect(second[0].system).toContain("Réponds uniquement par un objet JSON");
+    expect(f.remove).toHaveBeenCalledTimes(10);
+  });
   it("photo absente de R2 : aucune demande au modèle, les fichiers déjà envoyés sont supprimés", async () => {
-    const f = fakeClient(() => Promise.resolve(message(JSON.stringify(PERFECT))));
+    const f = fakeClient(() => Promise.resolve(message(JSON.stringify(toReply(PERFECT)))));
     const partial = (id: string) => (id === "p3" ? Promise.resolve(null) : read());
     const err = await askClaude(f.client, "m", photos, partial, () => undefined).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(AnalyseError);
