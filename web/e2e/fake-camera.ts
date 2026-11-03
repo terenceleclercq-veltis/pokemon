@@ -1,6 +1,6 @@
 // Fausse caméra pour les tests du scanner : une carte (63 × 88, coins arrondis, légèrement tournée) sur un tapis
-// sombre, en vidéo Y4M (lue en boucle par Chromium) et en image BMP (photo « appareil photo »). Générées avant les
-// tests.
+// sombre, recto puis verso, en vidéo Y4M (lue en boucle par Chromium) et en image BMP (photo « appareil photo »).
+// Générées avant les tests.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,8 +8,11 @@ import { fileURLToPath } from "node:url";
 // dans le projet (dossier ignoré par git), pas dans le dossier temporaire partagé du système
 export const FAKE_CAMERA = fileURLToPath(new URL("../.wrangler/fake-camera/camera.y4m", import.meta.url));
 
-/** Luminance (0-255) de la scène : carte claire texturée, bordure unie, tapis sombre ; anticrénelée. */
-function scene(w: number, h: number): Uint8Array {
+/**
+ * Luminance (0-255) de la scène : carte texturée, bordure unie, tapis sombre ; anticrénelée. Recto : bordure claire,
+ * damier et disque sombre en haut ; verso : bordure grise, rayures et disque clair en bas (empreinte différente).
+ */
+function scene(w: number, h: number, face: "recto" | "verso" = "recto"): Uint8Array {
   const out = new Uint8Array(w * h);
   const ch = h * 0.8;
   const cw = ch * (63 / 88);
@@ -26,7 +29,8 @@ function scene(w: number, h: number): Uint8Array {
     const [mx, my] = [(u + 0.5) * 63, (v + 0.5) * 88];
     const out = Math.hypot(Math.max(3 - mx, mx - 60, 0), Math.max(3 - my, my - 85, 0)) > 3;
     if (Math.abs(u) > 0.5 || Math.abs(v) > 0.5 || out) return 22;
-    if (Math.abs(u) > 0.46 || Math.abs(v) > 0.47) return 205; // bordure
+    if (Math.abs(u) > 0.46 || Math.abs(v) > 0.47) return face === "recto" ? 205 : 150; // bordure
+    if (face === "verso") return Math.hypot(u, v - 0.2) < 0.2 ? 230 : Math.floor((v + 1) * 30) % 2 ? 185 : 95;
     // illustration : damier + disque, pour la netteté
     const checker = (Math.floor((u + 1) * 40) + Math.floor((v + 1) * 40)) % 2 ? 175 : 115;
     return Math.hypot(u, v + 0.1) < 0.18 ? 90 : checker;
@@ -45,8 +49,8 @@ function scene(w: number, h: number): Uint8Array {
 }
 
 /** Image BMP 24 bits (niveaux de gris) de la scène, pour la photo prise « avec l'appareil photo ». */
-export function cardBmp(w = 600, h = 800): Buffer {
-  const g = scene(w, h);
+export function cardBmp(w = 600, h = 800, face: "recto" | "verso" = "recto"): Buffer {
+  const g = scene(w, h, face);
   const row = Math.ceil((w * 3) / 4) * 4;
   const buf = Buffer.alloc(54 + row * h);
   buf.write("BM", 0);
@@ -66,13 +70,20 @@ export function cardBmp(w = 600, h = 800): Buffer {
   return buf;
 }
 
-/** Vidéo Y4M (4:2:0, chrominance neutre), image fixe répétée : la carte immobile sous la caméra. */
+/**
+ * Vidéo Y4M (4:2:0, chrominance neutre, 10 images/s) lue en boucle : la carte immobile, recto pendant 3 s puis verso
+ * pendant 3 s (le scanner prend une face, puis l'autre quand la carte « est retournée »).
+ */
 export default function globalSetup(): void {
   const [w, h] = [480, 640];
-  const y = scene(w, h);
   const chroma = Buffer.alloc((w / 2) * (h / 2) * 2, 128);
-  const frame = Buffer.concat([Buffer.from("FRAME\n"), Buffer.from(y), chroma]);
+  const frame = (face: "recto" | "verso") =>
+    Buffer.concat([Buffer.from("FRAME\n"), Buffer.from(scene(w, h, face)), chroma]);
+  const [recto, verso] = [frame("recto"), frame("verso")];
   const header = Buffer.from(`YUV4MPEG2 W${w} H${h} F10:1 Ip A1:1 C420jpeg\n`);
   mkdirSync(dirname(FAKE_CAMERA), { recursive: true });
-  writeFileSync(FAKE_CAMERA, Buffer.concat([header, ...Array.from({ length: 10 }, () => frame)]));
+  writeFileSync(
+    FAKE_CAMERA,
+    Buffer.concat([header, ...Array.from({ length: 30 }, () => recto), ...Array.from({ length: 30 }, () => verso)]),
+  );
 }

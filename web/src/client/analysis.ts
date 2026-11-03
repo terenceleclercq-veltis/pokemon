@@ -44,6 +44,8 @@ interface Photo {
   id: string;
   step: string;
   width: number;
+  /** Couleur du fond autour de la carte, mesurée à la prise (scans récents). */
+  fond?: number[] | null;
 }
 
 /** Photos sans lesquelles Claude ne peut pas juger : recto, verso et les 8 coins. */
@@ -100,7 +102,7 @@ async function measure(photo: Photo | undefined): Promise<Borders | null> {
   if (!ctx) return null;
   ctx.drawImage(img, 0, 0);
   const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  return borders(data, canvas.width, canvas.height, canvas.width / 63);
+  return borders(data, canvas.width, canvas.height, canvas.width / 63, photo.fond);
 }
 
 // --- écran allumé ----------------------------------------------------------------------------------------------------

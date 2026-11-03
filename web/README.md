@@ -18,12 +18,14 @@ achats enregistrés). Prix payé et date d'achat dans « Ma carte » (dépenses 
 Statistiques : chiffres clés, budget mensuel avec report (le non-dépensé passe au mois suivant), graphique des
 dépenses avec le disponible de chaque mois, reste à payer détaillé. Illustrateur de chaque carte (relevé chez TCGdex avec le prix), affiché dans la fiche et la visionneuse : un clic, ou
 une recherche par son nom, montre les espèces dont une carte est de lui.
-Scanner guidé de tes cartes (fiche d'une espèce au binder, « Scanner la carte ») : caméra en direct, contrôle du
-cadrage, de la stabilité, de la netteté et des reflets, déclenchement automatique ; recto et verso redressés à plat
-(63 × 88 mm à 20 px/mm ; vue refusée si un coin de l'image montre la carte au lieu du fond, signe d'un bord mal
-repéré : fond sombre sous le recto, clair sous le verso), gros plans des coins (et des bords au choix, refusés s'ils
-sont flous), repli sur l'appareil photo du téléphone ; photos privées stockées dans R2, vignettes et visionneuse dans
-la fiche.
+Scanner de tes cartes (fiche d'une espèce au binder, « Scanner la carte »), inspiré des scanners de documents : deux
+photos, recto puis verso, prises toutes seules dès que l'image est stable (le verso quand la carte est retournée), à
+la meilleure définition de l'appareil (photo pleine définition quand le navigateur le permet, sinon la vidéo ; ou
+l'appareil photo du téléphone). La carte est repérée sur n'importe quel fond, son vrai bord retrouvé quand le contour
+passe à l'intérieur (bordure confondue avec le fond), et ses coins restent ajustables à la main, avec une loupe. Recto
+et verso sont redressés à plat (63 × 88 mm à 20 px/mm), les gros plans des quatre coins découpés dans la photo
+d'origine ; puis la carte suivante sans scan est proposée, pour scanner en série. Photos privées stockées dans R2,
+vignettes et visionneuse dans la fiche.
 Pré-évaluation PSA d'un scan complet (recto, verso, 8 coins) par Claude Opus 5.5 : le site mesure lui-même le centrage
 sur les vues redressées, Claude relève l'état des coins, des bords et de la surface (format imposé, confiance par
 constat) et donne son impression du centrage, et le verdict (« candidat PSA 10 », « probable 9 », « 8 ou moins »,

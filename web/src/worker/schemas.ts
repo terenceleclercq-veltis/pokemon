@@ -74,6 +74,15 @@ export const photoQuery = z.object({
   w: px,
   h: px,
   sharp: z.optional(z.coerce.number().check(z.gte(0), z.lte(1e7))),
+  /** Couleur du fond autour de la carte (vues entières) : « r,g,b ». */
+  fond: z.optional(
+    z
+      .pipe(
+        z.string().check(z.regex(/^\d{1,3},\d{1,3},\d{1,3}$/)),
+        z.transform((v) => v.split(",").map(Number)),
+      )
+      .check(z.refine((v) => v.every((c) => c <= 255), "composante de couleur > 255")),
+  ),
   quad: z.optional(
     z.pipe(
       z.pipe(

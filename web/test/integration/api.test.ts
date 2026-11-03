@@ -121,6 +121,21 @@ describe("scanner : scans et photos", () => {
     expect((await thumb(new Uint8Array([1, 2, 3]))).status).toBe(400);
     expect((await thumb(jpeg(), crypto.randomUUID())).status).toBe(404);
   });
+  it("couleur du fond des vues entières gardée ; espèces scannées listées (scanner en série)", async () => {
+    await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } });
+    expect(await (await call("/api/scans")).json()).toEqual({ species: [] });
+    const id = await scan();
+    expect((await put(id, "recto", jpeg(), "image/jpeg", "w=1260&h=1760&fond=62%2C44%2C47")).status).toBe(201);
+    expect((await put(id, "recto-hg", jpeg(), "image/jpeg", "w=555&h=555")).status).toBe(201);
+    for (const bad of ["300,1,1", "1,2", "a,b,c"])
+      expect((await put(id, "verso", jpeg(), "image/jpeg", `w=1260&h=1760&fond=${bad}`)).status).toBe(400);
+    const photos = (await list())[0]?.photos as unknown as { step: string; fond: number[] | null }[];
+    expect(photos.map((p) => [p.step, p.fond])).toEqual([
+      ["recto", [62, 44, 47]],
+      ["recto-hg", null],
+    ]);
+    expect(await (await call("/api/scans")).json()).toEqual({ species: [1] });
+  });
   it("une photo reprise remplace la précédente (objet R2 supprimé)", async () => {
     await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } });
     const id = await scan();

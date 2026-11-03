@@ -1,20 +1,29 @@
-// Scanner guidé : caméra en direct, contrôle du cadrage, de la stabilité, de la netteté et des reflets, déclenchement
-// automatique, carte redressée à plat (63 × 88 mm à 20 px/mm) et gros plans des coins (et des bords, au choix).
-// Repli : l'appareil photo du téléphone (la photo est contrôlée et redressée de la même façon).
+// Scanner : deux photos, recto puis verso, à la meilleure définition de l'appareil. Comme les scanners de documents
+// (Notes d'iOS, ML Kit) : la carte est repérée sur n'importe quel fond, la photo part toute seule quand l'image est
+// stable, le contour reste vérifiable et ajustable. Le verso se prend tout seul quand la carte est retournée. Les
+// gros plans des quatre coins sont découpés dans la photo d'origine ; un contour passé à l'intérieur de la carte
+// (bordure confondue avec le fond) est repoussé jusqu'au vrai bord. Puis carte suivante, en série.
+// Repli : l'appareil photo du téléphone (photo contrôlée et traitée de la même façon).
 import { api, type Species } from "./api";
-import { $, $as, action, h, toast } from "./dom";
+import { $, $as, action, h } from "./dom";
+import { editQuad } from "./quad-editor";
+import { cardImg, store } from "./state";
 import {
   CARD_RATIO,
+  cardRegion,
   cutCorners,
   detectCard,
-  framing,
   glare,
   gray,
-  motion,
+  growQuad,
+  matColor,
+  pxPerMm,
   quadMotion,
   quadShape,
   refineQuad,
+  sameFace,
   sharpness,
+  signature,
   warp,
   type Corner,
   type Quad,
@@ -22,10 +31,11 @@ import {
   type Target,
 } from "./vision";
 
+type Side = "recto" | "verso";
 export interface Step {
   id: string;
-  side: "recto" | "verso";
-  /** Gros plan : partie de la carte au centre du cadre ; absent pour la vue entière. */
+  side: Side;
+  /** Gros plan : coin ou bord ; absent pour la vue entière. */
   target?: Target;
   label: string;
 }
@@ -38,19 +48,34 @@ interface Shot {
   /** Coins de la carte sur la photo d'origine (vues entières). */
   quad?: Quad;
   sharp: number;
-  /** Coins de l'image redressée où la carte est coupée (vues entières). */
-  cut?: Corner[];
+  /** Couleur du fond autour de la carte (vues entières). */
+  fond?: number[] | null;
+}
+/** Une face prise : photo d'origine (pour ajuster le contour), contour, qualité, vue redressée et gros plans. */
+interface Face {
+  side: Side;
+  source: Blob;
+  /** Dimensions de la photo d'origine telle que traitée (coordonnées du contour). */
+  sw: number;
+  sh: number;
+  quad: Quad;
+  ppm: number;
+  fond: number[] | null;
+  cut: Corner[];
+  glare: number;
+  sig: Float32Array;
+  view: Shot;
+  corners: Record<Corner, Shot>;
+  origin: "photo" | "video" | "fichier";
 }
 interface Verdict {
   ok: boolean;
   msg: string;
   quad?: Quad;
-  box?: Rect;
 }
 
 const SIDE = { recto: "Recto", verso: "Verso" } as const;
-/** Fond conseillé : sombre sous le recto (bordure claire), clair sous le verso (bordure bleu foncé). */
-const background = (step: Step | undefined) => (step?.side === "verso" ? "clair" : "sombre");
+const CORNERS: Corner[] = ["hg", "hd", "bd", "bg"];
 const PART: Record<Target, string> = {
   hg: "coin haut gauche",
   hd: "coin haut droit",
@@ -62,7 +87,7 @@ const PART: Record<Target, string> = {
   g: "bord gauche",
 };
 
-/** Procédure : recto entier puis ses gros plans, verso entier puis ses gros plans. */
+/** Étapes enregistrées : vue entière puis gros plans, pour chaque face (les bords : anciens scans seulement). */
 export function scanSteps(edges: boolean): Step[] {
   const zoom: Target[] = ["hg", "hd", "bd", "bg", ...(edges ? (["h", "d", "b", "g"] as const) : [])];
   return (["recto", "verso"] as const).flatMap((side) => [
@@ -73,34 +98,34 @@ export function scanSteps(edges: boolean): Step[] {
 
 const FLAT_W = 1260; // 63 mm à 20 px/mm
 const FLAT_H = 1760; // 88 mm
-const ANALYSIS = 360; // largeur de l'image d'analyse (px)
-const ZOOM_BOX = 0.7; // côté du cadre de gros plan, en part du petit côté de l'image
+const ANALYSIS = 360; // largeur de l'image analysée en direct
 const HOLD = 4; // images valides d'affilée avant de déclencher
 const MAX_PIXELS = 16_000_000; // limite des canevas sur iOS
-const ZOOM_MAX_SIDE = 2000;
-/**
- * Netteté minimale d'un gros plan (pleine résolution) : sur un vrai scan, les gros plans flous (téléphone trop près
- * pour la mise au point) mesuraient 6 à 8, les nets 23 à 85 ; le contrôle en direct, relatif, ne les distingue pas.
- */
-const ZOOM_MIN_SHARP = 12;
+/** Gros plan découpé : 12 mm de carte autour du coin et 3 mm de fond, à la définition d'origine (60 px/mm au plus). */
+const CROP_MM = 15;
+const CROP_PPM = [20, 60] as const;
+/** Définition sous laquelle les détails fins (blanchiment d'un coin) deviennent difficiles à lire. */
+const MIN_PPM = 25;
+/** Ressemblance au-delà de laquelle la carte montre encore la face déjà prise (pas encore retournée). */
+const SAME_FACE = 0.55;
 
 let species: Species;
-let steps: Step[] = [];
-let current = 0;
-/** Reprise d'une seule photo depuis le récapitulatif. */
-let retake = false;
-const shots = new Map<string, Shot>();
+let onSaved: (num: number) => void = () => undefined;
+let side: Side = "recto";
+/** Reprise d'une seule face depuis le récapitulatif. */
+let only = false;
+const faces: Partial<Record<Side, Face>> = {};
 let stream: MediaStream | null = null;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let busy = false;
 let ok = 0;
 let peak = 0;
 let prevQuad: Quad | null = null;
-let prevGray: Uint8Array | null = null;
+/** Empreinte de la carte sur la dernière image en direct (contrôle d'une photo pleine définition). */
+let liveSig: Float32Array | null = null;
 let lastMsg = "";
 let savedScan: string | null = null;
 const uploaded = new Set<string>();
-let onSaved: () => void = () => undefined;
 
 const dialog = () => $as("scan", HTMLDialogElement);
 const video = () => $as("scan-video", HTMLVideoElement);
@@ -114,6 +139,10 @@ function canvas(w: number, hgt: number): [HTMLCanvasElement, CanvasRenderingCont
   if (!ctx) throw new Error("canevas indisponible");
   return [c, ctx];
 }
+/** Libère la mémoire d'un grand canevas tout de suite (Safari compte la mémoire des canevas). */
+const drop = (c: HTMLCanvasElement) => {
+  c.width = c.height = 0;
+};
 
 const toBlob = (c: HTMLCanvasElement, quality: number) =>
   new Promise<Blob>((resolve, reject) => {
@@ -133,10 +162,8 @@ function say(msg: string): void {
   $("scan-msg").textContent = msg;
 }
 
-function show(part: "intro" | "live" | "review"): void {
-  $("scan-intro").hidden = part !== "intro";
-  $("scan-live").hidden = part !== "live";
-  $("scan-review").hidden = part !== "review";
+function show(part: "live" | "review" | "edit" | "done"): void {
+  for (const p of ["live", "review", "edit", "done"] as const) $(`scan-${p}`).hidden = p !== part;
 }
 
 const bbox = (q: Quad): Rect => {
@@ -148,10 +175,6 @@ const bbox = (q: Quad): Rect => {
     w: Math.max(...xs) - Math.min(...xs),
     h: Math.max(...ys) - Math.min(...ys),
   };
-};
-const zoomBox = (w: number, hgt: number): Rect => {
-  const side = Math.min(w, hgt) * ZOOM_BOX;
-  return { x: (w - side) / 2, y: (hgt - side) / 2, w: side, h: side };
 };
 
 // --- caméra --------------------------------------------------------------------------------------------------------
@@ -165,9 +188,10 @@ async function startCamera(): Promise<boolean> {
     return false;
   }
   try {
+    // la plus haute définition proposée (4:3 si possible, le format photo des capteurs)
     stream = await media.getUserMedia({
       audio: false,
-      video: { facingMode: { ideal: "environment" }, width: { ideal: 3840 }, height: { ideal: 2160 } },
+      video: { facingMode: { ideal: "environment" }, width: { ideal: 4032 }, height: { ideal: 3024 } },
     });
   } catch {
     say("Accès à la caméra refusé : autorise-le dans le navigateur, ou utilise « Appareil photo ».");
@@ -189,61 +213,129 @@ function stopCamera(): void {
   c.getContext("2d")?.clearRect(0, 0, c.width, c.height);
 }
 
-/** Zoom optique ou numérique de la caméra pour les gros plans, quand le navigateur le permet (Android). */
-async function setZoom(on: boolean): Promise<void> {
+type Still = { takePhoto(): Promise<Blob>; getPhotoCapabilities?(): Promise<{ imageWidth?: { max?: number } }> };
+const timeout = <T>(p: Promise<T>, ms: number) =>
+  Promise.race([
+    p,
+    new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error("délai dépassé"));
+      }, ms);
+    }),
+  ]);
+
+/**
+ * Photo pleine définition par l'appareil (ImageCapture : Chrome, Safari 18.4 et plus), quand il annonce mieux que la
+ * vidéo. L'orientation et le cadrage d'une photo pouvant différer de la vidéo, la carte y est cherchée (photo telle
+ * quelle, ou tournée d'un quart de tour) et comparée à celle de l'image en direct ; sinon, repli sur la vidéo.
+ */
+async function stillPhoto(live: Float32Array): Promise<{ c: HTMLCanvasElement; blob: Blob } | null> {
   const track = stream?.getVideoTracks()[0];
-  // getCapabilities manque sur d'anciens Safari ; « zoom » n'existe que sur Android (Chrome)
-  const caps = (track as { getCapabilities?: () => unknown } | undefined)?.getCapabilities?.() as
-    { zoom?: { min: number; max: number } } | undefined;
-  if (!track || !caps?.zoom) return;
-  const zoom = on ? Math.min(2, caps.zoom.max) : caps.zoom.min;
-  await track.applyConstraints({ advanced: [{ zoom } as MediaTrackConstraintSet] }).catch(() => undefined);
+  const IC = (window as { ImageCapture?: new (t: MediaStreamTrack) => Still }).ImageCapture;
+  if (!track || !IC) return null;
+  try {
+    const ic = new IC(track);
+    const caps = await ic.getPhotoCapabilities?.().catch(() => undefined);
+    const v = video();
+    if (!((caps?.imageWidth?.max ?? 0) > Math.max(v.videoWidth, v.videoHeight))) return null;
+    const blob = await timeout(ic.takePhoto(), 5000);
+    const bmp = await createImageBitmap(blob);
+    const portrait = v.videoHeight > v.videoWidth;
+    const turns = bmp.height > bmp.width === portrait ? [0] : [90, 270];
+    let best: { c: HTMLCanvasElement; score: number; turn: number } | null = null;
+    for (const turn of turns) {
+      const c = fit(bmp, turn);
+      const quad = coarse(c);
+      if (quad) {
+        const small = shrink(c);
+        const k = small.width / c.width;
+        const sq = quad.map((p) => ({ x: p.x * k, y: p.y * k })) as Quad;
+        const data = small.getContext("2d")?.getImageData(0, 0, small.width, small.height).data;
+        const score = data ? sameFace(signature(data, small.width, small.height, sq), live) : 0;
+        drop(small);
+        if (!best || score > best.score) {
+          if (best) drop(best.c);
+          best = { c, score, turn };
+          continue;
+        }
+      }
+      drop(c);
+    }
+    bmp.close();
+    if (!best || best.score < 0.6) {
+      if (best) drop(best.c);
+      return null;
+    }
+    return { c: best.c, blob: best.turn ? await toBlob(best.c, 0.92) : blob };
+  } catch {
+    return null;
+  }
+}
+
+/** Image (ou photo) dans un canevas, tournée de `turn` degrés et réduite sous la limite des canevas d'iOS. */
+function fit(img: CanvasImageSource & { width: number; height: number }, turn = 0): HTMLCanvasElement {
+  const k = Math.min(1, Math.sqrt(MAX_PIXELS / (img.width * img.height)));
+  const [w, hgt] = [Math.round(img.width * k), Math.round(img.height * k)];
+  const [c, ctx] = turn ? canvas(hgt, w) : canvas(w, hgt);
+  if (turn) {
+    ctx.translate(c.width / 2, c.height / 2);
+    ctx.rotate((turn * Math.PI) / 180);
+    ctx.drawImage(img, -w / 2, -hgt / 2, w, hgt);
+  } else ctx.drawImage(img, 0, 0, w, hgt);
+  return c;
+}
+
+/** Copie réduite (ANALYSIS px de large) pour le repérage. */
+function shrink(c: HTMLCanvasElement): HTMLCanvasElement {
+  const [s, ctx] = canvas(ANALYSIS, Math.round((c.height / c.width) * ANALYSIS));
+  ctx.drawImage(c, 0, 0, s.width, s.height);
+  return s;
+}
+
+/** Contour approximatif de la carte sur une image entière (repérage sur copie réduite) ; null si introuvable. */
+function coarse(c: HTMLCanvasElement): Quad | null {
+  const s = shrink(c);
+  const ctx = s.getContext("2d");
+  const d = ctx
+    ? detectCard(gray(ctx.getImageData(0, 0, s.width, s.height).data, s.width, s.height), s.width, s.height)
+    : null;
+  const k = c.width / s.width;
+  drop(s);
+  if (!d || d.clipped || d.area < 0.05) return null;
+  return d.quad.map((p) => ({ x: p.x * k, y: p.y * k })) as Quad;
 }
 
 // --- contrôle en direct --------------------------------------------------------------------------------------------
 
-const keep = (msg: string, extra: Partial<Verdict> = {}): Verdict => ({ ok: false, msg, ...extra });
+const keep = (msg: string, quad?: Quad): Verdict => ({ ok: false, msg, quad });
 
-function checkFull(rgba: Uint8ClampedArray, g: Uint8Array, w: number, hgt: number): Verdict {
-  prevGray = g;
+/** Contrôles légers : carte entière, à la verticale, assez grande, immobile, nette ; et bien l'autre face. */
+function check(rgba: Uint8ClampedArray, g: Uint8Array, w: number, hgt: number): Verdict {
   const d = detectCard(g, w, hgt);
-  if (!d || d.area < 0.08) {
+  if (!d || d.area < 0.05) {
     prevQuad = null;
-    return keep(`Pose la carte entière sur un fond ${background(steps[current])}, dans le cadre.`);
+    return keep("Montre la carte entière, à plat sous le téléphone.");
   }
   const moved = prevQuad ? quadMotion(prevQuad, d.quad, w, hgt) : 1;
   prevQuad = d.quad;
-  const s = quadShape(d.quad);
   const quad = d.quad;
-  if (d.clipped) return keep("Recule un peu : la carte dépasse de l'image.", { quad });
-  if (s.ratio > 1) return keep("Tourne la carte à la verticale.", { quad });
-  if (s.height < hgt * 0.5) return keep("Rapproche-toi : la carte doit remplir le cadre.", { quad });
-  if (Math.abs(s.ratio - CARD_RATIO) > 0.06 || s.skew > 6)
-    return keep("Tiens le téléphone bien à plat, juste au-dessus de la carte.", { quad });
-  if (glare(rgba, w, quad) > 0.004)
-    return keep("Reflet sur la carte : éloigne la lampe ou incline légèrement la carte.", { quad });
-  if (moved > 0.008) return keep("Ne bouge plus…", { quad });
+  const s = quadShape(quad);
+  if (d.clipped) return keep("Recule un peu : la carte dépasse de l'image.", quad);
+  if (s.ratio > 1) return keep("Tourne la carte à la verticale.", quad);
+  if (Math.abs(s.ratio - CARD_RATIO) > 0.12 || s.skew > 15) return keep("Tiens le téléphone un peu plus à plat.", quad);
+  if (s.height < hgt * 0.45) return keep("Rapproche-toi un peu de la carte.", quad);
+  if (moved > 0.008) return keep("Ne bouge plus…", quad);
+  liveSig = signature(rgba, w, hgt, quad);
+  const other = faces[side === "recto" ? "verso" : "recto"];
+  if (other && sameFace(liveSig, other.sig) > SAME_FACE)
+    return keep(side === "verso" ? "Retourne la carte : le verso se prend tout seul." : "Montre le recto.", quad);
   const sharp = sharpness(g, w, hgt, bbox(quad));
   peak = Math.max(sharp, peak * 0.97);
-  if (sharp < peak * 0.75) return keep("Mise au point…", { quad });
+  if (sharp < peak * 0.75) return keep("Mise au point…", quad);
   return { ok: true, msg: "Parfait, ne bouge plus…", quad };
 }
 
-function checkZoom(g: Uint8Array, w: number, hgt: number, target: Target): Verdict {
-  const box = zoomBox(w, hgt);
-  const moved = prevGray ? motion(prevGray, g) : 99;
-  prevGray = g;
-  prevQuad = null;
-  if (framing(g, w, box, target) < 35)
-    return keep(`Place le ${PART[target]} de la carte au centre du cadre, comme sur le schéma.`, { box });
-  if (moved > 5) return keep("Ne bouge plus…", { box });
-  const sharp = sharpness(g, w, hgt, box);
-  peak = Math.max(sharp, peak * 0.97);
-  if (sharp < peak * 0.8) return keep("Mise au point… recule un peu si l'image reste floue.", { box });
-  return { ok: true, msg: "Parfait, ne bouge plus…", box };
-}
-
-/** Cadre guide, schéma du gros plan et carte repérée, par-dessus la vidéo. */
+/** Contour de la carte repérée, par-dessus la vidéo. */
 function draw(v: Verdict, w: number, hgt: number): void {
   const c = $as("scan-overlay", HTMLCanvasElement);
   const dpr = window.devicePixelRatio || 1;
@@ -253,56 +345,21 @@ function draw(v: Verdict, w: number, hgt: number): void {
   const ctx = c.getContext("2d");
   if (!ctx) return;
   ctx.clearRect(0, 0, cw, ch);
-  // vidéo affichée en « contain » : échelle et marges de l'image d'analysée vers l'écran
+  if (!v.quad) return;
+  // vidéo affichée en « contain » : échelle et marges de l'image analysée vers l'écran
   const k = Math.min(cw / w, ch / hgt);
   const ox = (cw - w * k) / 2;
   const oy = (ch - hgt * k) / 2;
-  const X = (x: number) => ox + x * k;
-  const Y = (y: number) => oy + y * k;
-  const color = v.ok ? "#4cc27a" : "#f2b33a";
   ctx.lineWidth = 3 * dpr;
-  const step = steps[current];
-  if (!step?.target) {
-    // cadre au format carte, 80 % de la hauteur
-    const gh = hgt * 0.8;
-    const gw = gh * CARD_RATIO;
-    ctx.setLineDash([10 * dpr, 8 * dpr]);
-    ctx.strokeStyle = "#ffffffaa";
-    ctx.strokeRect(X((w - gw) / 2), Y((hgt - gh) / 2), gw * k, gh * k);
-    ctx.setLineDash([]);
-    if (v.quad) {
-      ctx.strokeStyle = color;
-      ctx.beginPath();
-      for (const [i, p] of v.quad.entries())
-        if (i) ctx.lineTo(X(p.x), Y(p.y));
-        else ctx.moveTo(X(p.x), Y(p.y));
-      ctx.closePath();
-      ctx.stroke();
-    }
-    return;
-  }
-  const b = v.box ?? zoomBox(w, hgt);
-  ctx.strokeStyle = color;
-  ctx.strokeRect(X(b.x), Y(b.y), b.w * k, b.h * k);
-  // schéma : la partie « carte » du cadre grisée, et la bordure attendue en trait plein
-  const mx = X(b.x + b.w / 2);
-  const my = Y(b.y + b.h / 2);
-  const [x0, y0, x1, y1] = [X(b.x), Y(b.y), X(b.x + b.w), Y(b.y + b.h)];
-  const card: Record<Target, [number, number, number, number]> = {
-    hg: [mx, my, x1, y1],
-    hd: [x0, my, mx, y1],
-    bd: [x0, y0, mx, my],
-    bg: [mx, y0, x1, my],
-    h: [x0, my, x1, y1],
-    b: [x0, y0, x1, my],
-    g: [mx, y0, x1, y1],
-    d: [x0, y0, mx, y1],
-  };
-  const [a, bb, cc, dd] = card[step.target];
-  ctx.fillStyle = "#ffffff22";
-  ctx.fillRect(a, bb, cc - a, dd - bb);
-  ctx.strokeStyle = "#ffffffcc";
-  ctx.strokeRect(a, bb, cc - a, dd - bb);
+  ctx.strokeStyle = v.ok ? "#4cc27a" : "#f2b33a";
+  ctx.fillStyle = v.ok ? "#4cc27a33" : "#f2b33a22";
+  ctx.beginPath();
+  for (const [i, p] of v.quad.entries())
+    if (i) ctx.lineTo(ox + p.x * k, oy + p.y * k);
+    else ctx.moveTo(ox + p.x * k, oy + p.y * k);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
 }
 
 function tick(): void {
@@ -321,15 +378,12 @@ function tick(): void {
   if (!ctx) return;
   ctx.drawImage(v, 0, 0, w, hgt);
   const rgba = ctx.getImageData(0, 0, w, hgt).data;
-  const g = gray(rgba, w, hgt);
-  const step = steps[current];
-  if (!step) return;
-  const verdict = step.target ? checkZoom(g, w, hgt, step.target) : checkFull(rgba, g, w, hgt);
+  const verdict = check(rgba, gray(rgba, w, hgt), w, hgt);
   draw(verdict, w, hgt);
   say(verdict.msg);
   ok = verdict.ok ? ok + 1 : 0;
   if (ok >= HOLD) {
-    void capture(verdict);
+    void capture(verdict.quad);
     return;
   }
   timer = setTimeout(tick, 120);
@@ -337,8 +391,8 @@ function tick(): void {
 
 // --- prise et traitement -------------------------------------------------------------------------------------------
 
-/** Image pleine résolution de la vidéo, la plus nette de trois prises rapprochées (zone utile seulement). */
-async function grab(region: (w: number, hgt: number) => Rect): Promise<HTMLCanvasElement> {
+/** Image pleine définition de la vidéo, la plus nette de trois prises rapprochées (zone de la carte). */
+async function grab(region: Rect | null): Promise<HTMLCanvasElement> {
   const v = video();
   let best: HTMLCanvasElement | null = null;
   let bestSharp = -1;
@@ -346,270 +400,353 @@ async function grab(region: (w: number, hgt: number) => Rect): Promise<HTMLCanva
     if (i) await new Promise((r) => setTimeout(r, 70));
     const [c, ctx] = canvas(v.videoWidth, v.videoHeight);
     ctx.drawImage(v, 0, 0);
-    const r = region(c.width, c.height);
+    const r = region ?? { x: 0, y: 0, w: c.width, h: c.height };
     const rw = Math.max(1, Math.round(r.w));
     const rh = Math.max(1, Math.round(r.h));
     const s = sharpness(gray(ctx.getImageData(r.x, r.y, rw, rh).data, rw, rh), rw, rh);
-    if (s > bestSharp) [best, bestSharp] = [c, s];
+    if (s > bestSharp) {
+      if (best) drop(best);
+      [best, bestSharp] = [c, s];
+    } else drop(c);
   }
   return best!;
 }
 
-/** Vue entière : coins affinés à pleine résolution puis carte remise à plat ; null si la carte est introuvable. */
-async function fullShot(src: HTMLCanvasElement, hint?: Quad): Promise<Shot | null> {
-  const w = src.width;
-  const hgt = src.height;
-  const ctx = src.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return null;
-  const data = ctx.getImageData(0, 0, w, hgt).data;
-  const g = gray(data, w, hgt);
-  let quad = hint;
-  if (!quad) {
-    // photo de l'appareil : repérage sur une copie réduite
-    const aw = ANALYSIS;
-    const ah = Math.round((hgt / w) * aw);
-    const [, sctx] = canvas(aw, ah);
-    sctx.drawImage(src, 0, 0, aw, ah);
-    const d = detectCard(gray(sctx.getImageData(0, 0, aw, ah).data, aw, ah), aw, ah);
-    if (!d || d.clipped || d.area < 0.08) return null;
-    quad = d.quad.map((p) => ({ x: (p.x * w) / aw, y: (p.y * hgt) / ah })) as Quad;
+async function finish(c: HTMLCanvasElement, meta: { quad?: Quad; sharp: number; fond?: number[] | null }) {
+  const blob = await toBlob(c, 0.92);
+  const tw = 240;
+  const [t, tctx] = canvas(tw, Math.round((c.height / c.width) * tw));
+  tctx.drawImage(c, 0, 0, t.width, t.height);
+  const thumb = await toBlob(t, 0.8);
+  return { blob, thumb, url: URL.createObjectURL(blob), w: c.width, h: c.height, ...meta } satisfies Shot;
+}
+
+async function shotOf(px: Uint8ClampedArray<ArrayBuffer>, w: number, hgt: number, meta: Omit<Shot, keyof Base>) {
+  const [c, ctx] = canvas(w, hgt);
+  ctx.putImageData(new ImageData(px, w, hgt), 0, 0);
+  const s = await finish(c, meta);
+  drop(c);
+  return s;
+}
+type Base = Pick<Shot, "blob" | "thumb" | "url" | "w" | "h">;
+
+const cutAt = (data: Uint8ClampedArray, w: number, hgt: number, q: Quad, fond: number[] | null) =>
+  cutCorners(warp(data, w, hgt, q, 630, 880), 630, 880, 10, fond);
+
+/**
+ * Face à partir d'une image entière : contour affiné à pleine définition ; si des coins de l'image montrent la carte
+ * au lieu du fond, le contour est repoussé jusqu'au vrai bord (gardé s'il y a moins de coins coupés).
+ */
+async function processFace(
+  s: Side,
+  src: HTMLCanvasElement,
+  blob: Blob | null,
+  hint: Quad | undefined,
+  origin: Face["origin"],
+): Promise<Face | null> {
+  const [w, hgt] = [src.width, src.height];
+  const data = src.getContext("2d", { willReadFrequently: true })?.getImageData(0, 0, w, hgt).data;
+  const start = hint ?? coarse(src);
+  if (!data || !start) return null;
+  let quad = refineQuad(gray(data, w, hgt), w, hgt, start);
+  let fond = matColor(data, w, hgt, quad);
+  let cut = cutAt(data, w, hgt, quad, fond);
+  if (cut.length) {
+    const grown = growQuad(data, w, hgt, quad);
+    const fond2 = matColor(data, w, hgt, grown);
+    const cut2 = cutAt(data, w, hgt, grown, fond2);
+    if (cut2.length < cut.length) [quad, fond, cut] = [grown, fond2, cut2];
   }
-  const fine = refineQuad(g, w, hgt, quad);
-  const flat = warp(data, w, hgt, fine, FLAT_W, FLAT_H);
-  const [out, octx] = canvas(FLAT_W, FLAT_H);
-  octx.putImageData(new ImageData(flat, FLAT_W, FLAT_H), 0, 0);
+  const source = blob ?? (await toBlob(src, 0.92));
+  return build(s, data, w, hgt, quad, fond, cut, source, origin);
+}
+
+/** Vue redressée (20 px/mm), gros plans des coins découpés à la définition d'origine, qualité, empreinte. */
+async function build(
+  s: Side,
+  data: Uint8ClampedArray,
+  w: number,
+  hgt: number,
+  quad: Quad,
+  fond: number[] | null,
+  cut: Corner[],
+  source: Blob,
+  origin: Face["origin"],
+): Promise<Face> {
+  const ppm = pxPerMm(quad);
+  const flat = warp(data, w, hgt, quad, FLAT_W, FLAT_H);
   const sharp = sharpness(gray(flat, FLAT_W, FLAT_H), FLAT_W, FLAT_H, {
     x: FLAT_W * 0.1,
     y: FLAT_H * 0.1,
     w: FLAT_W * 0.8,
     h: FLAT_H * 0.8,
   });
-  return finish(out, 0.92, { quad: fine, sharp, cut: cutCorners(flat, FLAT_W, FLAT_H, FLAT_W / 63) });
+  const view = await shotOf(flat, FLAT_W, FLAT_H, { quad, sharp, fond });
+  const side = Math.round(Math.min(CROP_PPM[1], Math.max(CROP_PPM[0], ppm)) * CROP_MM);
+  const corners = {} as Record<Corner, Shot>;
+  for (const c of CORNERS) {
+    const u = c === "hg" || c === "bg" ? -3 : 63 + 3 - CROP_MM;
+    const v = c === "hg" || c === "hd" ? -3 : 88 + 3 - CROP_MM;
+    const px = warp(data, w, hgt, cardRegion(quad, u, v, u + CROP_MM, v + CROP_MM), side, side);
+    corners[c] = await shotOf(px, side, side, { sharp: sharpness(gray(px, side, side), side, side) });
+  }
+  return {
+    side: s,
+    source,
+    sw: w,
+    sh: hgt,
+    quad,
+    ppm,
+    fond,
+    cut,
+    glare: glare(data, w, quad),
+    sig: signature(data, w, hgt, quad),
+    view,
+    corners,
+    origin,
+  };
 }
 
-/** Gros plan : le cadre central à pleine résolution (ou toute la photo de l'appareil). */
-async function zoomShot(src: HTMLCanvasElement, crop: boolean): Promise<Shot> {
-  const r = crop ? zoomBox(src.width, src.height) : { x: 0, y: 0, w: src.width, h: src.height };
-  const k = Math.min(1, ZOOM_MAX_SIDE / Math.max(r.w, r.h));
-  const [out, octx] = canvas(Math.round(r.w * k), Math.round(r.h * k));
-  octx.drawImage(src, r.x, r.y, r.w, r.h, 0, 0, out.width, out.height);
-  const g = gray(octx.getImageData(0, 0, out.width, out.height).data, out.width, out.height);
-  return finish(out, 0.92, { sharp: sharpness(g, out.width, out.height) });
+function release(f: Face | undefined): void {
+  if (!f) return;
+  URL.revokeObjectURL(f.view.url);
+  for (const c of CORNERS) URL.revokeObjectURL(f.corners[c].url);
 }
 
-async function finish(
-  c: HTMLCanvasElement,
-  quality: number,
-  meta: { quad?: Quad; sharp: number; cut?: Corner[] },
-): Promise<Shot> {
-  const blob = await toBlob(c, quality);
-  const tw = 240;
-  const [t, tctx] = canvas(tw, Math.round((c.height / c.width) * tw));
-  tctx.drawImage(c, 0, 0, t.width, t.height);
-  const thumb = await toBlob(t, 0.8);
-  return { blob, thumb, url: URL.createObjectURL(blob), w: c.width, h: c.height, ...meta };
-}
-
-/**
- * Photo à refaire : gros plan flou (toujours), ou carte coupée sur la vue entière, sauf prise au déclencheur (le
- * centrage sera alors marqué incertain à l'analyse).
- */
-function flaw(step: Step, shot: Shot, manual: boolean): string | null {
-  if (step.target && shot.sharp < ZOOM_MIN_SHARP)
-    return "Gros plan flou : recule un peu le téléphone pour que la mise au point se fasse, puis réessaie.";
-  if (manual || !shot.cut?.length) return null;
-  const where = `Carte coupée sur la photo (${shot.cut.map((c) => PART[c]).join(", ")})`;
-  const keep = "ou touche le déclencheur pour garder la photo.";
-  return step.side === "verso"
-    ? `${where} : sur un fond sombre, la bordure bleu foncé du verso se perd. Pose la carte sur un fond clair (une feuille blanche), ${keep}`
-    : `${where} : recadre la carte entière, bien à plat, ${keep}`;
-}
-
-async function capture(v: Verdict, manual = false): Promise<void> {
+async function capture(hint?: Quad): Promise<void> {
   busy = true;
   clearTimeout(timer);
-  const step = steps[current];
-  if (!step) return;
   say("Photo…");
   try {
-    let shot: Shot | null;
-    if (step.target) {
-      shot = await zoomShot(await grab((w, hgt) => zoomBox(w, hgt)), true);
+    const still = liveSig ? await stillPhoto(liveSig) : null;
+    let face: Face | null;
+    if (still) {
+      face = await processFace(side, still.c, still.blob, undefined, "photo");
+      drop(still.c);
     } else {
-      const vw = video().videoWidth;
-      const k = vw / ANALYSIS;
-      const quad = v.quad?.map((p) => ({ x: p.x * k, y: p.y * k })) as Quad | undefined;
-      shot = await fullShot(await grab((w, hgt) => (quad ? bbox(quad) : { x: 0, y: 0, w, h: hgt })), quad);
+      const k = video().videoWidth / ANALYSIS;
+      const q = hint?.map((p) => ({ x: p.x * k, y: p.y * k })) as Quad | undefined;
+      const frame = await grab(q ? bbox(q) : null);
+      face = await processFace(side, frame, null, q, "video");
+      drop(frame);
     }
-    const problem = shot && flaw(step, shot, manual);
-    if (!shot) resume("Carte introuvable sur la photo : réessaie.");
-    else if (problem) resume(problem, 2500);
-    else accept(step, shot);
+    if (face) keepFace(face);
+    else resume("Carte introuvable sur la photo : réessaie.");
   } catch {
     resume("La photo a échoué : réessaie.");
   }
 }
 
-/** Photo prise avec l'appareil du téléphone : même contrôle, même redressement. */
+/** Photo prise avec l'appareil du téléphone : même traitement. */
 async function fromFile(file: File): Promise<void> {
-  const step = steps[current];
-  if (!step) return;
   busy = true;
   clearTimeout(timer);
   say("Traitement de la photo…");
-  const url = URL.createObjectURL(file);
   try {
-    // <img> applique l'orientation EXIF ; le canevas la perd, avec les autres métadonnées (position GPS comprise)
-    const img = new Image();
-    img.src = url;
-    await img.decode();
-    const k = Math.min(1, Math.sqrt(MAX_PIXELS / (img.naturalWidth * img.naturalHeight)));
-    const [c, ctx] = canvas(Math.round(img.naturalWidth * k), Math.round(img.naturalHeight * k));
-    ctx.drawImage(img, 0, 0, c.width, c.height);
-    const shot = step.target ? await zoomShot(c, false) : await fullShot(c);
-    if (shot) accept(step, shot);
-    else resume(`Carte introuvable sur la photo : carte entière, fond ${background(step)}, sans reflet.`);
+    // orientation EXIF appliquée ; le canevas perd les autres métadonnées (position GPS comprise)
+    const bmp = await createImageBitmap(file);
+    const c = fit(bmp);
+    bmp.close();
+    const face = await processFace(side, c, null, undefined, "fichier");
+    drop(c);
+    if (face) keepFace(face);
+    else resume("Carte introuvable sur la photo : carte entière, sans reflet.");
   } catch {
     resume("Photo illisible : réessaie.");
-  } finally {
-    URL.revokeObjectURL(url);
   }
 }
 
-/** Reprise du direct après un refus ; le message reste lisible `wait` ms. */
-function resume(msg: string, wait = 600): void {
+function resume(msg: string): void {
   say(msg);
   busy = false;
   ok = 0;
-  timer = setTimeout(tick, wait);
+  timer = setTimeout(tick, 600);
 }
 
-function accept(step: Step, shot: Shot): void {
-  const old = shots.get(step.id);
-  if (old) URL.revokeObjectURL(old.url);
-  shots.set(step.id, shot);
-  uploaded.delete(step.id);
+/** Face gardée ; après le recto, le direct continue : le verso partira quand la carte sera retournée. */
+function keepFace(face: Face): void {
+  release(faces[face.side]);
+  faces[face.side] = face;
+  uploaded.delete(face.side);
+  for (const c of CORNERS) uploaded.delete(`${face.side}-${c}`);
   (navigator as { vibrate?: (ms: number) => boolean }).vibrate?.(40); // absent sur iPhone
-  if (retake) {
-    review();
-    return;
-  }
-  next(`✓ ${step.label}`);
-}
-
-/** Étape suivante ; au changement de face, pause : la carte doit être retournée avant de continuer. */
-function next(done: string): void {
-  const prev = steps[current];
-  current++;
-  const step = steps[current];
-  if (!step) {
-    review();
-    return;
-  }
-  if (prev && prev.side !== step.side) {
-    stopCamera();
+  if (!only && face.side === "recto" && !faces.verso) {
+    side = "verso";
+    $("scan-step").textContent = `${species.nom_fr} · verso (2/2)`;
+    $("scan-later").classList.remove("invisible");
+    prevQuad = null;
+    peak = 0;
     say(
-      `${done}. Retourne la carte (verso visible), de préférence sur un fond clair (une feuille blanche) : sa bordure bleu foncé se perd sur un fond sombre. Puis touche « Continuer ».`,
+      stream
+        ? "✓ Recto. Retourne la carte : le verso se prend tout seul."
+        : "✓ Recto. Retourne la carte, puis prends le verso avec « Appareil photo ».",
     );
-    show("live");
-    $("scan-shot").hidden = true;
-    $("scan-skip").hidden = true;
-    $("scan-native").hidden = true;
-    const go = h("button", { type: "button", class: "primary", id: "scan-continue" }, "Continuer");
-    go.addEventListener("click", () => {
-      go.remove();
-      void begin();
-    });
-    $("scan-live").querySelector(".scan-bar")?.append(go);
-    $("scan-step").textContent = `Retourne la carte`;
+    busy = false;
+    ok = 0;
+    timer = setTimeout(tick, 900);
     return;
   }
-  say(done);
-  setTimeout(() => void begin(), 700);
+  review();
 }
 
-/** Démarre (ou reprend) l'étape courante en direct. */
+/** Démarre (ou reprend) la prise de la face attendue, en direct. */
 async function begin(): Promise<void> {
-  const step = steps[current];
-  if (!step) return;
   show("live");
-  $("scan-step").textContent = `${step.label} (${current + 1}/${steps.length})`;
-  $("scan-shot").hidden = false;
-  $("scan-native").hidden = false;
-  // une vue entière est indispensable ; un gros plan peut être passé (bouton masqué, place gardée : déclencheur centré)
-  const skip = $as("scan-skip", HTMLButtonElement);
-  skip.hidden = false;
-  skip.classList.toggle("invisible", !step.target);
-  skip.disabled = !step.target;
+  const first = side === "recto" && !only;
+  $("scan-step").textContent =
+    `${species.nom_fr} · ${only ? `${side} à refaire` : first ? "recto (1/2)" : "verso (2/2)"}`;
+  // « Plus tard » : passer le verso (rien à passer pour le recto)
+  $("scan-later").classList.toggle("invisible", side === "recto" || only);
   busy = false;
   ok = 0;
   peak = 0;
   prevQuad = null;
-  prevGray = null;
+  liveSig = null;
   lastMsg = "";
-  if (await startCamera()) {
-    await setZoom(Boolean(step.target));
-    timer = setTimeout(tick, 300);
-  }
+  if (await startCamera()) timer = setTimeout(tick, 300);
 }
 
-// --- récapitulatif et envoi ----------------------------------------------------------------------------------------
+// --- récapitulatif -------------------------------------------------------------------------------------------------
+
+/** Qualité d'une face, en clair : définition, contour à vérifier, reflets. */
+function quality(f: Face): { text: string; warn: boolean }[] {
+  const ppm = String(Math.round(f.ppm));
+  const out = [
+    f.ppm < MIN_PPM
+      ? { text: `Définition faible (${ppm} px/mm) : rapproche-toi`, warn: true }
+      : {
+          text: `${f.origin === "photo" ? "Photo pleine définition" : "Bonne définition"} (${ppm} px/mm)`,
+          warn: false,
+        },
+  ];
+  if (f.cut.length) out.push({ text: "Bords à vérifier : ajuste les coins", warn: true });
+  if (f.glare > 0.004) out.push({ text: "Reflet sur la carte", warn: true });
+  return out;
+}
 
 function review(): void {
   stopCamera();
-  retake = false;
+  only = false;
   show("review");
-  $("scan-step").textContent = `${shots.size}/${steps.length} photos`;
-  $("scan-shots").replaceChildren(
-    ...steps.map((st, i) => {
-      const shot = shots.get(st.id);
+  $("scan-step").textContent = `${species.nom_fr} · vérification`;
+  const btn = (label: string, fn: () => void) => h("button", { type: "button", onclick: fn }, label);
+  const figure = (s: Side) => {
+    const f = faces[s];
+    const again = () => {
+      only = true;
+      side = s;
+      void begin();
+    };
+    if (!f)
       return h(
-        "li",
-        {},
-        shot
-          ? h("img", { src: shot.url, alt: st.label, width: 96, height: Math.round((shot.h / shot.w) * 96) })
-          : h("span", { class: "ph" }, "—"),
-        h("span", { class: "lbl" }, st.label),
-        h(
-          "button",
-          {
-            type: "button",
-            class: "link",
-            onclick: () => {
-              retake = true;
-              current = i;
-              void begin();
-            },
-          },
-          shot ? "Refaire" : "Prendre",
-        ),
+        "figure",
+        { class: "scan-face missing" },
+        h("div", { class: "ph" }, "—"),
+        h("figcaption", {}, SIDE[s]),
+        h("div", { class: "row" }, btn("Prendre", again)),
       );
-    }),
+    return h(
+      "figure",
+      { class: "scan-face" },
+      h("img", { src: f.view.url, alt: `${SIDE[s]} redressé`, width: 160, height: 224 }),
+      h("figcaption", {}, SIDE[s]),
+      h("ul", { class: "scan-q" }, ...quality(f).map((q) => h("li", { class: q.warn ? "warn" : "" }, q.text))),
+      h(
+        "div",
+        { class: "row" },
+        btn("Ajuster les coins", () => void adjust(s)),
+        btn("Reprendre", again),
+      ),
+    );
+  };
+  $("scan-faces").replaceChildren(figure("recto"), figure("verso"));
+  $("scan-crops").replaceChildren(
+    ...(["recto", "verso"] as const).flatMap((s) =>
+      CORNERS.map((c) => {
+        const shot = faces[s]?.corners[c];
+        return h(
+          "li",
+          {},
+          shot
+            ? h("img", { src: shot.url, alt: `${SIDE[s]} · ${PART[c]}`, width: 72, height: 72 })
+            : h("span", { class: "ph" }, "—"),
+          h("span", { class: "lbl" }, `${SIDE[s]} · ${PART[c]}`),
+        );
+      }),
+    ),
   );
-  $as("scan-save", HTMLButtonElement).disabled = !steps.some((st) => !st.target && shots.has(st.id));
+  $as("scan-save", HTMLButtonElement).disabled = !faces.recto && !faces.verso;
+}
+
+/** Contour ajusté à la main sur la photo d'origine, puis face refaite (vue redressée et gros plans). */
+async function adjust(s: Side): Promise<void> {
+  const f = faces[s];
+  if (!f) return;
+  show("edit");
+  $("scan-step").textContent = `${species.nom_fr} · coins du ${s}`;
+  const bmp = await createImageBitmap(f.source);
+  const img = fit(bmp);
+  bmp.close();
+  // la photo d'origine a pu être réduite au traitement : mêmes coordonnées que le contour
+  const [c, ctx] = img.width === f.sw ? [img, img.getContext("2d")] : canvas(f.sw, f.sh);
+  if (c !== img) ctx?.drawImage(img, 0, 0, f.sw, f.sh);
+  const q = await editQuad(
+    $("scan-edit-view"),
+    c,
+    f.quad,
+    $as("scan-edit-ok", HTMLButtonElement),
+    $as("scan-edit-cancel", HTMLButtonElement),
+  );
+  if (q) {
+    $("scan-step").textContent = `${species.nom_fr} · redressement…`;
+    const data = c.getContext("2d", { willReadFrequently: true })?.getImageData(0, 0, f.sw, f.sh).data;
+    if (data) {
+      const fond = matColor(data, f.sw, f.sh, q);
+      const face = await build(s, data, f.sw, f.sh, q, fond, cutAt(data, f.sw, f.sh, q, fond), f.source, f.origin);
+      release(f);
+      faces[s] = face;
+      uploaded.delete(s);
+      for (const k of CORNERS) uploaded.delete(`${s}-${k}`);
+    }
+  }
+  drop(c);
+  if (c !== img) drop(img);
+  review();
+}
+
+// --- envoi, puis carte suivante ------------------------------------------------------------------------------------
+
+/** Photos à envoyer : vue entière et 4 gros plans de chaque face prise. */
+function photos(): [string, Shot][] {
+  return (["recto", "verso"] as const).flatMap((s) => {
+    const f = faces[s];
+    return f
+      ? [[s, f.view] as [string, Shot], ...CORNERS.map((c) => [`${s}-${c}`, f.corners[c]] as [string, Shot])]
+      : [];
+  });
 }
 
 /** Envoi : le scan est créé une fois ; après un échec, seules les photos manquantes repartent. */
 function save(btn: HTMLButtonElement): void {
   action(btn, async () => {
-    const todo = steps.filter((st) => shots.has(st.id) && !uploaded.has(st.id));
+    const all = photos();
+    const todo = all.filter(([id]) => !uploaded.has(id));
     try {
       savedScan ??= (
         (await (await api(`/api/species/${species.num}/scans`, { method: "POST" })).json()) as { id: string }
       ).id;
       let n = 0;
-      for (const st of todo) {
-        const shot = shots.get(st.id);
-        if (!shot) continue;
-        btn.textContent = `Envoi ${++n}/${todo.length}…`;
+      for (const [step, shot] of todo) {
+        btn.textContent = `Envoi ${String(++n)}/${String(todo.length)}…`;
         const q = new URLSearchParams({ w: String(shot.w), h: String(shot.h), sharp: shot.sharp.toFixed(1) });
         if (shot.quad)
           q.set(
             "quad",
             JSON.stringify(shot.quad.map((p) => ({ x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 }))),
           );
+        if (shot.fond) q.set("fond", shot.fond.map((v) => String(Math.round(v))).join(","));
         const { id } = (await (
-          await api(`/api/scans/${savedScan}/photos/${st.id}?${q.toString()}`, {
+          await api(`/api/scans/${savedScan}/photos/${step}?${q.toString()}`, {
             method: "PUT",
             body: shot.blob,
             headers: { "Content-Type": "image/jpeg" },
@@ -620,48 +757,87 @@ function save(btn: HTMLButtonElement): void {
           body: shot.thumb,
           headers: { "Content-Type": "image/jpeg" },
         });
-        uploaded.add(st.id);
+        uploaded.add(step);
       }
     } finally {
       btn.textContent = "Enregistrer le scan";
     }
-    toast(`Scan enregistré : ${uploaded.size} photo${uploaded.size > 1 ? "s" : ""}.`);
-    dialog().close();
-    onSaved();
+    onSaved(species.num);
+    await done(all.length);
   });
 }
 
-/** Ouvre le scanner pour ta carte de cette espèce ; `saved` est appelé après l'enregistrement. */
-export function openScanner(s: Species, saved: () => void): void {
+/** Prochaine carte au binder sans scan, dans l'ordre du Pokédex après celle-ci. */
+function nextSpecies(scanned: Set<number>): Species | null {
+  const todo = store.data.filter((s) => s.owned && !scanned.has(s.num) && s.num !== species.num);
+  return todo.find((s) => s.num > species.num) ?? todo[0] ?? null;
+}
+
+async function done(n: number): Promise<void> {
+  const name = species.nom_fr;
+  let next: Species | null = null;
+  try {
+    const { species: scanned } = (await (await api("/api/scans")).json()) as { species: number[] };
+    next = nextSpecies(new Set(scanned));
+  } catch {
+    next = null; // hors ligne : pas de suggestion
+  }
+  show("done");
+  $("scan-step").textContent = "";
+  $("scan-done-msg").textContent = `✓ ${name} : scan enregistré (${String(n)} photos).`;
+  const card = next?.cards.find((c) => c.id === next.owned?.card_id) ?? null;
+  const img = card ? cardImg(card) : null;
+  $("scan-next").replaceChildren(
+    ...(next
+      ? [
+          h("p", { class: "mut" }, "Prochaine carte sans scan :"),
+          h(
+            "button",
+            {
+              type: "button",
+              class: "primary scan-next",
+              onclick: () => {
+                start(next);
+              },
+            },
+            img ? h("img", { src: img, alt: "", width: 48, height: 67, loading: "lazy" }) : null,
+            `Scanner #${String(next.num).padStart(3, "0")} ${next.nom_fr}`,
+          ),
+        ]
+      : [h("p", { class: "mut" }, "Toutes tes cartes ont un scan.")]),
+  );
+}
+
+/** Scan d'une espèce : remise à zéro, puis recto en direct. */
+function start(s: Species): void {
   species = s;
-  onSaved = saved;
-  for (const shot of shots.values()) URL.revokeObjectURL(shot.url);
-  shots.clear();
+  release(faces.recto);
+  release(faces.verso);
+  delete faces.recto;
+  delete faces.verso;
   uploaded.clear();
   savedScan = null;
-  current = 0;
-  retake = false;
-  $("scan-step").textContent = s.nom_fr;
-  show("intro");
+  side = "recto";
+  only = false;
+  void begin();
+}
+
+/** Ouvre le scanner pour ta carte de cette espèce ; `saved` est appelé après chaque scan enregistré (en série aussi). */
+export function openScanner(s: Species, saved: (num: number) => void): void {
+  onSaved = saved;
   dialog().showModal();
+  start(s);
 }
 
 export function initScanner(): void {
-  $("scan-start").addEventListener("click", () => {
-    steps = scanSteps($as("scan-edges", HTMLInputElement).checked);
-    current = 0;
-    void begin();
-  });
   $("scan-shot").addEventListener("click", () => {
     if (busy) return;
-    // déclenchement manuel : la vue entière doit quand même montrer la carte
-    void capture({ ok: true, msg: "", quad: prevQuad ?? undefined }, true);
+    // déclenchement manuel : la carte doit quand même être sur la photo
+    void capture(prevQuad ?? undefined);
   });
-  $("scan-skip").addEventListener("click", () => {
+  $("scan-later").addEventListener("click", () => {
     if (busy) return;
-    busy = true;
-    clearTimeout(timer);
-    next(`${steps[current]?.label ?? ""} : passé`);
+    review();
   });
   $("scan-native").addEventListener("click", () => {
     $("scan-file").click();
@@ -675,9 +851,11 @@ export function initScanner(): void {
   $("scan-save").addEventListener("click", (e) => {
     save(e.currentTarget as HTMLButtonElement);
   });
+  $("scan-finish").addEventListener("click", () => {
+    dialog().close();
+  });
   dialog().addEventListener("close", () => {
     stopCamera();
     busy = false;
-    document.getElementById("scan-continue")?.remove();
   });
 }

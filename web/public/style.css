@@ -426,16 +426,6 @@ dialog.scanner button.primary {
 .scan-body .mut {
   color: #c9ced6;
 }
-.scan-tips {
-  padding-left: 1.3em;
-  line-height: 1.6;
-}
-.scan-body label.check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 44px;
-}
 .scan-live {
   display: flex;
   flex: 1;
@@ -477,18 +467,128 @@ dialog.scanner button.primary {
   width: 100%;
   max-width: 11em;
 }
-#scan-native {
+.scan-bar > :first-child {
   justify-self: start;
 }
-#scan-skip {
+.scan-bar > :last-child {
   justify-self: end;
 }
-#scan-skip.invisible {
+.scan-bar .invisible {
   visibility: hidden;
 }
-#scan-continue {
-  grid-column: 1 / -1;
-  justify-self: center;
+.scan-help {
+  padding: 0 16px calc(10px + env(safe-area-inset-bottom));
+  color: #c9ced6;
+  font-size: 0.85rem;
+}
+.scan-help summary {
+  min-height: 32px;
+  cursor: pointer;
+}
+.scan-help ul {
+  margin: 4px 0 0;
+  padding-left: 1.2em;
+  line-height: 1.5;
+}
+/* Vérification : les deux faces redressées, leur qualité, et les gros plans découpés */
+.scan-faces {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.scan-face {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+.scan-face img,
+.scan-face .ph {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 63 / 88;
+  border-radius: 8px;
+  background: #222;
+}
+.scan-face .ph {
+  display: grid;
+  place-items: center;
+  border: 1px dashed #ffffff40;
+  color: #a3acba;
+}
+.scan-face figcaption {
+  font-weight: 600;
+}
+.scan-face .row {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.scan-face .row button {
+  flex: 1 1 auto;
+  font-size: 0.85rem;
+}
+.scan-q {
+  margin: 0;
+  padding: 0;
+  color: #c9ced6;
+  font-size: 0.8rem;
+  list-style: none;
+}
+.scan-q li.warn {
+  color: #f2b33a;
+}
+.scan-q li.warn::before {
+  content: "⚠ ";
+}
+.scan-crops-box {
+  margin-bottom: 16px;
+}
+.scan-crops-box summary {
+  min-height: 36px;
+  cursor: pointer;
+}
+/* Ajustement des coins : photo, contour, poignées et loupe */
+.scan-view.qe {
+  touch-action: none;
+}
+.qe-handle {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  padding: 0;
+  border: 3px solid #4cc27a !important;
+  border-radius: 50%;
+  background: #4cc27a33 !important;
+  touch-action: none;
+}
+.qe-handle:focus-visible {
+  outline: 3px solid #fff;
+}
+.scan-view .qe-loupe {
+  inset: 8px auto auto 8px;
+  width: 128px;
+  height: 128px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.scan-view .qe-loupe.right {
+  inset: 8px 8px auto auto;
+}
+.scan-done-msg {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+button.scan-next {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+button.scan-next img {
+  border-radius: 4px;
 }
 .shutter {
   flex: none;
