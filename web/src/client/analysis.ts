@@ -100,6 +100,19 @@ async function measure(photo: Photo | undefined): Promise<Borders | null> {
   return borders(data, canvas.width, canvas.height, canvas.width / 63);
 }
 
+// --- écran allumé ----------------------------------------------------------------------------------------------------
+
+type Lock = { release(): Promise<void> };
+/** Écran allumé pendant l'analyse : en veille, le téléphone couperait la connexion (et le résultat en direct). */
+async function keepAwake(): Promise<Lock | undefined> {
+  const wake = (navigator as { wakeLock?: { request(type: "screen"): Promise<Lock> } }).wakeLock;
+  try {
+    return await wake?.request("screen");
+  } catch {
+    return undefined; // refusé (batterie faible, onglet masqué) ou non pris en charge : sans conséquence
+  }
+}
+
 // --- lancement (réponse en flux) -----------------------------------------------------------------------------------
 
 type Progress = { etape: "envoi" | "analyse"; photos?: number; secondes?: number };
@@ -301,19 +314,25 @@ export function analysisBlock(
       type: "button",
       onclick: () => {
         action(btn, async () => {
-          status.textContent = "Mesure du centrage…";
-          const view = (step: string) => scan.photos.find((p) => p.step === step);
-          const centrage = { recto: await measure(view("recto")), verso: await measure(view("verso")) };
-          const started = Date.now();
-          await run(scan.id, centrage, (p) => {
-            const s = Math.round((Date.now() - started) / 1000);
-            status.textContent =
-              p.etape === "envoi"
-                ? `Envoi des ${String(p.photos ?? "")} photos à Claude…`
-                : `Claude examine la carte… ${String(s)} s (une à deux minutes)`;
-          });
-          toast("Pré-évaluation terminée.");
-          changed();
+          const lock = await keepAwake();
+          try {
+            status.textContent = "Mesure du centrage…";
+            const view = (step: string) => scan.photos.find((p) => p.step === step);
+            const centrage = { recto: await measure(view("recto")), verso: await measure(view("verso")) };
+            const started = Date.now();
+            await run(scan.id, centrage, (p) => {
+              const s = Math.round((Date.now() - started) / 1000);
+              status.textContent =
+                p.etape === "envoi"
+                  ? `Envoi des ${String(p.photos ?? "")} photos à Claude…`
+                  : `Claude examine la carte… ${String(s)} s (une à deux minutes)`;
+            });
+            toast("Pré-évaluation terminée.");
+          } finally {
+            void lock?.release().catch(() => undefined);
+            // succès ou échec : la fiche se redessine (résultat ou échec enregistré, quota du jour à jour)
+            changed();
+          }
         });
       },
     },
@@ -326,7 +345,7 @@ export function analysisBlock(
       ? "Pour la pré-évaluation, il faut un scan complet : recto, verso et les 8 coins."
       : claude.restantes <= 0
         ? `Limite de ${String(claude.par_jour)} analyses atteinte aujourd'hui.`
-        : `${modelName(claude.model)}, environ 0,20 $ par analyse · ${String(claude.restantes)} restante${claude.restantes > 1 ? "s" : ""} aujourd'hui.`;
+        : `${modelName(claude.model)}, environ 0,25 $ par analyse · ${String(claude.restantes)} restante${claude.restantes > 1 ? "s" : ""} aujourd'hui.`;
   status.textContent = note;
   return h(
     "div",
