@@ -92,7 +92,9 @@ dans une livraison suivante. Jamais de `DROP` ou de renommage dans la même livr
       la console Claude, *Workload identity*, onglet *Authentication history*.
    État (03/11/2026) : règle `pokedex-kanto` et compte de service `pokedex-analyse` créés dans l'espace `pokemon` par
    l'assistant de la console (l'API d'administration n'est pas ouverte aux comptes individuels), identifiants dans
-   `wrangler.jsonc` ; clé de staging dans le JWKS de l'émetteur, clé de production à créer puis à y ajouter.
+   `wrangler.jsonc` ; le JWKS de l'émetteur contient la clé de staging et celle de production (`kid`
+   `pokedex-kanto-production-20261103T143955-75c8b9`) ; échange de jeton vérifié sur les deux environnements, première
+   analyse réelle réussie en production.
 
 **Promos au style IR** : pour les espèces sans IR ni SIR en français, des promos Black Star au style « Illustration
 Rare » sont ajoutées à la main (catégorie `PROMO_IR`, comptée comme IR) après vérification visuelle ; TCGdex les classe

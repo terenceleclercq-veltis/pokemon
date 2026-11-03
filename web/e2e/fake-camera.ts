@@ -1,5 +1,6 @@
-// Fausse caméra pour les tests du scanner : une carte (63 × 88, légèrement tournée) sur un tapis sombre, en vidéo
-// Y4M (lue en boucle par Chromium) et en image BMP (photo « appareil photo »). Générées avant les tests.
+// Fausse caméra pour les tests du scanner : une carte (63 × 88, coins arrondis, légèrement tournée) sur un tapis
+// sombre, en vidéo Y4M (lue en boucle par Chromium) et en image BMP (photo « appareil photo »). Générées avant les
+// tests.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,7 +22,10 @@ function scene(w: number, h: number): Uint8Array {
     return { u: (dx * Math.cos(a) + dy * Math.sin(a)) / cw, v: (-dx * Math.sin(a) + dy * Math.cos(a)) / ch };
   };
   const shade = (u: number, v: number) => {
-    if (Math.abs(u) > 0.5 || Math.abs(v) > 0.5) return 22; // tapis
+    // tapis, y compris dans les coins arrondis de la carte (rayon 3 mm)
+    const [mx, my] = [(u + 0.5) * 63, (v + 0.5) * 88];
+    const out = Math.hypot(Math.max(3 - mx, mx - 60, 0), Math.max(3 - my, my - 85, 0)) > 3;
+    if (Math.abs(u) > 0.5 || Math.abs(v) > 0.5 || out) return 22;
     if (Math.abs(u) > 0.46 || Math.abs(v) > 0.47) return 205; // bordure
     // illustration : damier + disque, pour la netteté
     const checker = (Math.floor((u + 1) * 40) + Math.floor((v + 1) * 40)) % 2 ? 175 : 115;

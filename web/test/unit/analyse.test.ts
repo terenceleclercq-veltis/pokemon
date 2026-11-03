@@ -20,7 +20,10 @@ const corner = PERFECT.coins.recto.hg;
 const edge = PERFECT.bords.recto.h;
 const corners = PERFECT.coins.recto;
 const edges = PERFECT.bords.recto;
-const face = (lr: number, tb: number, sure = true) => ({ gauche: 3, droite: 3, haut: 3, bas: 3, lr, tb, sure });
+const face = (lr: number, tb: number, sure = true, coupe?: ("hg" | "hd" | "bd" | "bg")[]) => ({
+  ...{ gauche: 3, droite: 3, haut: 3, bas: 3, lr, tb, sure },
+  ...(coupe ? { coupe } : {}),
+});
 const CENTERED: Centering = { recto: face(51, 50), verso: face(52, 53) };
 
 describe("pré-évaluation : verdict par règles fixes", () => {
@@ -63,7 +66,32 @@ describe("pré-évaluation : verdict par règles fixes", () => {
     expect(r.plafond).toBe(9);
     expect(r.incertains).toEqual(["centrage du recto (à l'œil : limite)"]);
     expect(verdict(PERFECT, { ...CENTERED, verso: face(60, 50, false) }).incertains).toEqual([
-      "centrage du verso (60/40)",
+      "centrage du verso (à l'œil : bon ; mesure incertaine : 60/40)",
+    ]);
+  });
+  it("mesure démentie par l'œil (bord mal repéré) ou sur image rognée : l'œil plafonne, centrage à confirmer", () => {
+    const contredite = verdict(PERFECT, { ...CENTERED, recto: face(52, 70) });
+    expect(contredite).toMatchObject({
+      plafond: 10,
+      verdict: "candidat_10",
+      incertains: ["centrage du recto (à l'œil : bon ; mesure contredite : 70/30)"],
+    });
+    // écart modéré (« limite » à l'œil, 62/38 mesuré) : la mesure décide
+    const limite = { ...PERFECT, centrage_visuel: { recto: "limite", verso: "bon" } } as const;
+    expect(verdict(limite, { ...CENTERED, recto: face(62, 50) })).toMatchObject({
+      plafond: 8,
+      limites: ["centrage du recto (62/38)"],
+      incertains: [],
+    });
+    // le scan réel de la carte n° 116 : recto coupé en bas, verso coupé aux quatre coins
+    const rogne = verdict(PERFECT, {
+      recto: { ...face(56.3, 70, false, ["bd", "bg"]), bas: 1.2 },
+      verso: face(68.6, 68.5, false, ["hg", "hd", "bd", "bg"]),
+    });
+    expect(rogne).toMatchObject({ plafond: 10, verdict: "candidat_10" });
+    expect(rogne.incertains).toEqual([
+      "centrage du recto (à l'œil : bon ; mesure sur image rognée : 70/30)",
+      "centrage du verso (à l'œil : bon ; mesure sur image rognée : 68,6/31,4)",
     ]);
   });
   it("photos inexploitables, ou plus de 4 constats incertains : photos insuffisantes", () => {

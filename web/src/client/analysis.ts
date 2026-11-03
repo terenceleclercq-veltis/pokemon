@@ -4,6 +4,9 @@ import { api, ApiError } from "./api";
 import { action, h, toast } from "./dom";
 import { borders, type Borders } from "./vision";
 
+/** Centrage enregistré : les analyses faites avant la vérification des coins n'ont pas `coupe`. */
+type Measured = Omit<Borders, "coupe"> & { coupe?: Borders["coupe"] };
+
 type Corner = "parfait" | "leger" | "visible" | "important";
 type Edge = "aucun" | "leger" | "visible" | "important";
 type Surface = "aucune" | "legere" | "visible" | "importante";
@@ -22,7 +25,7 @@ export interface Analyse {
   created_at: string;
   state: "en_cours" | "terminee" | "echec" | "interrompue";
   model: string;
-  centrage: FaceOf<Borders | null> | null;
+  centrage: FaceOf<Measured | null> | null;
   constats: Findings | null;
   verdict: "candidat_10" | "probable_9" | "huit_ou_moins" | "photos_insuffisantes" | null;
   plafond: number | null;
@@ -172,7 +175,9 @@ function grid(
   );
 }
 
-function centeringLine(face: "recto" | "verso", b: Borders | null, visual: string | undefined): HTMLElement {
+const CUT_NAME = { hg: "haut gauche", hd: "haut droit", bd: "bas droit", bg: "bas gauche" } as const;
+
+function centeringLine(face: "recto" | "verso", b: Measured | null, visual: string | undefined): HTMLElement {
   const limit = face === "recto" ? "55/45" : "75/25";
   if (!b) return h("li", {}, `${face} : non mesurable sur la photo`, visual ? ` (à l'œil : ${word(visual)})` : "");
   const pair = (v: number) => `${num(v)}/${num(100 - v)}`;
@@ -185,7 +190,15 @@ function centeringLine(face: "recto" | "verso", b: Borders | null, visual: strin
       { class: "mut" },
       ` (bordures ${num(b.gauche)} · ${num(b.droite)} · ${num(b.haut)} · ${num(b.bas)} mm ; PSA 10 jusqu'à ${limit})`,
     ),
-    b.sure ? "" : h("span", { class: "sev sev-1" }, " mesure incertaine"),
+    b.coupe?.length
+      ? h(
+          "span",
+          { class: "sev sev-1" },
+          ` carte coupée sur la photo (${b.coupe.length > 1 ? "coins" : "coin"} ${b.coupe.map((c) => CUT_NAME[c]).join(", ")}) : mesure non fiable`,
+        )
+      : b.sure
+        ? ""
+        : h("span", { class: "sev sev-1" }, " mesure incertaine"),
   );
 }
 
