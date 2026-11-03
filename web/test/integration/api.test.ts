@@ -570,10 +570,28 @@ describe("versions ajoutées depuis le site", () => {
     await call("/api/cards/sv08-200", { method: "DELETE" });
     expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM alert").first<{ n: number }>())?.n).toBe(0);
   });
+  it("alerte retirée quand la carte devient la tienne : « Je l'ai », commande, ancienne sauvegarde", async () => {
+    const alertOf = async (id: string) => (await species(1)).cards.find((x) => x.id === id)?.alert;
+    const put = (id: string) => call(`/api/cards/${id}/alert`, { method: "PUT", json: { max_price: 30 } });
+    await put("sv03.5-166");
+    await put("sv03.5-198");
+    // « Je l'ai » : l'alerte de cette carte disparaît, pas celle d'une autre version
+    await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } });
+    expect(await alertOf("sv03.5-166")).toBeNull();
+    expect(await alertOf("sv03.5-198")).toBe(30);
+    // commande passée sur une autre version : son alerte disparaît aussi
+    await call("/api/purchases", { method: "POST", json: { card_id: "sv03.5-198", price_paid: 25 } });
+    expect(await alertOf("sv03.5-198")).toBeNull();
+    // ancienne sauvegarde avec une alerte sur une carte possédée : alerte non restaurée
+    const dump = await (await call("/api/export")).json<Record<string, unknown>>();
+    dump.alerts = [{ card_id: "sv03.5-166", max_price: 30 }];
+    expect((await call("/api/import", { method: "POST", json: dump })).status).toBe(200);
+    expect(await alertOf("sv03.5-166")).toBeNull();
+  });
   it("sauvegarde v3 : versions ajoutées et alertes restaurées ; une sauvegarde v2 retire les ajouts", async () => {
     await add("sv08-200");
     await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv08-200" } });
-    await call("/api/cards/sv08-200/alert", { method: "PUT", json: { max_price: 20 } });
+    await call("/api/cards/sv03.5-198/alert", { method: "PUT", json: { max_price: 20 } });
     const dump = await (
       await call("/api/export")
     ).json<{ version: number; cards_site: unknown[]; alerts: unknown[] }>();
@@ -583,7 +601,8 @@ describe("versions ajoutées depuis le site", () => {
     expect((await call("/api/import", { method: "POST", json: dump })).status).toBe(200);
     const s = await species(1);
     expect(s.owned?.card_id).toBe("sv08-200");
-    expect(s.cards.find((x) => x.id === "sv08-200")).toMatchObject({ origine: "site", alert: 20 });
+    expect(s.cards.find((x) => x.id === "sv08-200")).toMatchObject({ origine: "site" });
+    expect(s.cards.find((x) => x.id === "sv03.5-198")?.alert).toBe(20);
     // sauvegarde v2 (sans versions ajoutées) : l'ajout non référencé est retiré
     const v2 = { version: 2, owned: [], keep: [], wish: [], excluded: [], purchases: [] };
     expect((await call("/api/import", { method: "POST", json: v2 })).status).toBe(200);

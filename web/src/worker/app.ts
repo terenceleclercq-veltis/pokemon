@@ -744,6 +744,10 @@ app.post("/api/import", async (c) => {
     ...speciesOf.keys(),
   ]);
   const gone = "SELECT id FROM cards WHERE origine = 'site' AND id NOT IN (SELECT value FROM json_each(?1))";
+  const acquired = new Set([
+    ...b.owned.flatMap((o) => (o.card_id ? [o.card_id] : [])),
+    ...(b.purchases ?? []).filter((p) => p.state !== "annulee").map((p) => p.card_id),
+  ]);
   const now = new Date().toISOString();
   // import = remplacement complet, atomique (une sauvegarde v1 laisse vides versions visées, écartées et commandes)
   await db.batch([
@@ -829,14 +833,17 @@ app.post("/api/import", async (c) => {
             .bind(VITRINE, JSON.stringify(b.vitrine), now),
         ]
       : []),
-    ...(b.alerts ?? []).map((a) =>
-      db
-        .prepare(
-          `INSERT INTO alert (card_id, max_price, created_at) VALUES (?1, ?2, ?3)
-           ON CONFLICT(card_id) DO UPDATE SET max_price = ?2`,
-        )
-        .bind(a.card_id, a.max_price, now),
-    ),
+    // alertes d'une ancienne sauvegarde : pas sur une carte déjà à toi ou achetée (comme les déclencheurs de 0012)
+    ...(b.alerts ?? [])
+      .filter((a) => !acquired.has(a.card_id))
+      .map((a) =>
+        db
+          .prepare(
+            `INSERT INTO alert (card_id, max_price, created_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(card_id) DO UPDATE SET max_price = ?2`,
+          )
+          .bind(a.card_id, a.max_price, now),
+      ),
     audit(db, c.get("user"), "import", `${b.owned.length} possédées, ${b.keep.length} conservées`),
   ]);
   return c.json({ ok: true, owned: b.owned.length, keep: b.keep.length });
