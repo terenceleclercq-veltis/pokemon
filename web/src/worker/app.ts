@@ -27,6 +27,9 @@ import {
   alertBody,
   cardParam,
   budgetBody,
+  photoParam,
+  photoQuery,
+  scanParam,
   vitrineBody,
   detailsBody,
   paidBody,
@@ -51,7 +54,14 @@ export const CSP = {
   scriptSrc: ["'self'"],
   styleSrc: ["'self'"],
   // images.pokemontcg.io : images des cartes que TCGdex n'illustre pas (galeries, Coffre étincelant…)
-  imgSrc: ["'self'", "https://assets.tcgdex.net", "https://raw.githubusercontent.com", "https://images.pokemontcg.io"],
+  // blob: : aperçus des photos du scanner avant envoi (créés par le site lui-même)
+  imgSrc: [
+    "'self'",
+    "blob:",
+    "https://assets.tcgdex.net",
+    "https://raw.githubusercontent.com",
+    "https://images.pokemontcg.io",
+  ],
   connectSrc: ["'self'"],
   manifestSrc: ["'self'"],
   baseUri: ["'none'"],
@@ -62,6 +72,9 @@ export const CSP = {
   trustedTypes: ["sw"],
   upgradeInsecureRequests: [],
 };
+
+/** Photo du scanner : 8 Mo au plus (une vue redressée en JPEG fait ~0,5 à 1,5 Mo). */
+const PHOTO_MAX = 8 * 1024 * 1024;
 
 const fail = (status: 400 | 401 | 403 | 404 | 409 | 413 | 429 | 500, message: string) =>
   new HTTPException(status, { message });
@@ -180,7 +193,7 @@ app.use("/sw.js", async (c, next) => {
   await next();
   c.res.headers.set(
     "Content-Security-Policy",
-    `default-src 'none'; connect-src 'self' ${CSP.imgSrc.slice(1).join(" ")}`,
+    `default-src 'none'; connect-src 'self' ${CSP.imgSrc.filter((s) => s.startsWith("https:")).join(" ")}`,
   );
 });
 app.use(
@@ -190,25 +203,29 @@ app.use(
     strictTransportSecurity: "max-age=63072000; includeSubDomains; preload",
     referrerPolicy: "no-referrer",
     xFrameOptions: "DENY",
-    permissionsPolicy: { camera: [], microphone: [], geolocation: [], payment: [], usb: [] },
+    // caméra : le scanner de cartes, sur ce site seulement
+    permissionsPolicy: { camera: ["self"], microphone: [], geolocation: [], payment: [], usb: [] },
     crossOriginEmbedderPolicy: false,
   }),
 );
 app.use("*", authenticate);
-app.use(
-  "/api/*",
-  rateLimit,
-  csrf,
+const limit = (maxSize: number) =>
   bodyLimit({
-    maxSize: 256 * 1024,
+    maxSize,
     onError: () => {
       throw fail(413, "corps trop gros");
     },
-  }),
+  });
+const smallBody = limit(256 * 1024);
+const photoBody = limit(PHOTO_MAX);
+app.use("/api/*", rateLimit, csrf, (c, next) =>
+  // photos du scanner : jusqu'à 8 Mo ; tout le reste : 256 Ko
+  /^\/api\/scans\/[^/]+\/photos\//.test(c.req.path) ? photoBody(c, next) : smallBody(c, next),
 );
 app.use("/api/*", async (c, next) => {
   await next();
-  c.header("Cache-Control", "no-store");
+  // une photo ne change jamais (nouvel identifiant à chaque prise) : gardée en cache privé ; le reste jamais
+  if (!c.req.path.startsWith("/api/photos/")) c.header("Cache-Control", "no-store");
 });
 
 app.get("/api/health", async (c) => {
@@ -326,6 +343,138 @@ app.put("/api/budget", async (c) => {
     ).bind(BUDGET, JSON.stringify(b), now),
     audit(c.env.DB, c.get("user"), "budget.set", `${b.monthly ?? "-"} depuis ${b.since}`),
   ]);
+  return c.json({ ok: true });
+});
+
+const PHOTO_KEY = (id: string) => `photos/${id}`;
+/** Miniature (240 px de large) envoyée par le scanner avec chaque photo, pour les vignettes de la fiche. */
+const THUMB_KEY = (id: string) => `thumbs/${id}`;
+
+/** Type réel de l'image d'après ses premiers octets : JPEG (FF D8 FF) ou WebP (« RIFF » … « WEBP »). */
+function sniff(b: Uint8Array): "image/jpeg" | "image/webp" | null {
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  const ascii = (from: number, to: number) => String.fromCharCode(...b.subarray(from, to));
+  if (ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP") return "image/webp";
+  return null;
+}
+
+// Scanner : un scan = une série de photos d'une carte que tu as (recto, verso, gros plans), stockées dans R2.
+app.post("/api/species/:num/scans", async (c) => {
+  const num = speciesNum(c);
+  const owned = await c.env.DB.prepare("SELECT card_id FROM owned WHERE species_num = ?")
+    .bind(num)
+    .first<{ card_id: string | null }>();
+  if (!owned) throw fail(409, "scanne une carte que tu as");
+  const id = crypto.randomUUID();
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT INTO scan (id, species_num, card_id, created_at) VALUES (?1, ?2, ?3, ?4)").bind(
+      id,
+      num,
+      owned.card_id,
+      new Date().toISOString(),
+    ),
+    audit(c.env.DB, c.get("user"), "scan.create", `${num} ${id}`),
+  ]);
+  return c.json({ id }, 201);
+});
+
+app.put("/api/scans/:id/photos/:step", async (c) => {
+  const { id, step } = parse(photoParam, c.req.param());
+  const q = parse(photoQuery, c.req.query());
+  if (!(await c.env.DB.prepare("SELECT 1 FROM scan WHERE id = ?").bind(id).first()))
+    throw fail(404, "scan introuvable");
+  const body = new Uint8Array(await c.req.arrayBuffer());
+  const mime = sniff(body);
+  if (!mime || c.req.header("Content-Type") !== mime) throw fail(400, "image JPEG ou WebP attendue");
+  const old = await c.env.DB.prepare("SELECT id FROM photo WHERE scan_id = ? AND step = ?")
+    .bind(id, step)
+    .first<{ id: string }>();
+  const pid = crypto.randomUUID();
+  await c.env.PHOTOS.put(PHOTO_KEY(pid), body, { httpMetadata: { contentType: mime } });
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM photo WHERE scan_id = ?1 AND step = ?2").bind(id, step),
+    c.env.DB.prepare(
+      `INSERT INTO photo (id, scan_id, step, mime, width, height, bytes, quad, sharpness, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+    ).bind(
+      pid,
+      id,
+      step,
+      mime,
+      q.w,
+      q.h,
+      body.length,
+      q.quad ? JSON.stringify(q.quad) : null,
+      q.sharp ?? null,
+      new Date().toISOString(),
+    ),
+  ]);
+  // une photo reprise remplace la précédente
+  if (old) await c.env.PHOTOS.delete([PHOTO_KEY(old.id), THUMB_KEY(old.id)]);
+  return c.json({ id: pid }, 201);
+});
+
+app.put("/api/photos/:id/thumb", async (c) => {
+  const { id } = parse(scanParam, c.req.param());
+  if (!(await c.env.DB.prepare("SELECT 1 FROM photo WHERE id = ?").bind(id).first()))
+    throw fail(404, "photo introuvable");
+  const body = new Uint8Array(await c.req.arrayBuffer());
+  const mime = sniff(body);
+  if (!mime || c.req.header("Content-Type") !== mime) throw fail(400, "image JPEG ou WebP attendue");
+  await c.env.PHOTOS.put(THUMB_KEY(id), body, { httpMetadata: { contentType: mime } });
+  return c.json({ ok: true });
+});
+
+app.get("/api/species/:num/scans", async (c) => {
+  const num = speciesNum(c);
+  type PhotoRow = { id: string; scan_id: string; step: string; width: number; height: number; sharpness: number };
+  const [scans, photos] = await c.env.DB.batch([
+    c.env.DB.prepare("SELECT id, card_id, created_at FROM scan WHERE species_num = ? ORDER BY created_at DESC").bind(
+      num,
+    ),
+    c.env.DB.prepare(
+      `SELECT p.id, p.scan_id, p.step, p.width, p.height, p.sharpness FROM photo p JOIN scan s ON s.id = p.scan_id
+       WHERE s.species_num = ? ORDER BY p.created_at`,
+    ).bind(num),
+  ]);
+  const byScan = new Map<string, Omit<PhotoRow, "scan_id">[]>();
+  for (const { scan_id, ...p } of (photos?.results ?? []) as PhotoRow[])
+    byScan.set(scan_id, [...(byScan.get(scan_id) ?? []), p]);
+  return c.json({
+    scans: ((scans?.results ?? []) as { id: string; card_id: string | null; created_at: string }[]).map((s) => ({
+      ...s,
+      photos: byScan.get(s.id) ?? [],
+    })),
+  });
+});
+
+/** Photo (ou sa miniature, à défaut la photo elle-même), en cache privé : une photo ne change jamais. */
+async function servePhoto(c: Ctx, thumb: boolean) {
+  const { id } = parse(scanParam, c.req.param());
+  const obj = (thumb ? await c.env.PHOTOS.get(THUMB_KEY(id)) : null) ?? (await c.env.PHOTOS.get(PHOTO_KEY(id)));
+  if (!obj) throw fail(404, "photo introuvable");
+  const headers = {
+    "Content-Type": obj.httpMetadata?.contentType ?? "application/octet-stream",
+    "Cache-Control": "private, max-age=31536000, immutable",
+    ETag: obj.httpEtag,
+  };
+  if (c.req.header("If-None-Match") === obj.httpEtag) return c.body(null, 304, headers);
+  return c.body(obj.body, 200, headers);
+}
+app.get("/api/photos/:id", (c) => servePhoto(c, false));
+app.get("/api/photos/:id/thumb", (c) => servePhoto(c, true));
+
+app.delete("/api/scans/:id", async (c) => {
+  const { id } = parse(scanParam, c.req.param());
+  if (!(await c.env.DB.prepare("SELECT 1 FROM scan WHERE id = ?").bind(id).first()))
+    throw fail(404, "scan introuvable");
+  const { results } = await c.env.DB.prepare("SELECT id FROM photo WHERE scan_id = ?").bind(id).all<{ id: string }>();
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM photo WHERE scan_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM scan WHERE id = ?").bind(id),
+    audit(c.env.DB, c.get("user"), "scan.delete", id),
+  ]);
+  if (results.length) await c.env.PHOTOS.delete(results.flatMap((p) => [PHOTO_KEY(p.id), THUMB_KEY(p.id)]));
   return c.json({ ok: true });
 });
 

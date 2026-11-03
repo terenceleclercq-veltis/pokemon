@@ -20,6 +20,7 @@ import {
   TIERS_DESC,
   visualOf,
 } from "./state";
+import { scansBlock } from "./scans";
 import { openViewer } from "./viewer";
 import { addToVitrine, inVitrine, removeFromVitrine } from "./vitrine";
 
@@ -523,7 +524,14 @@ function summary(s: Species, all: readonly Card[]): HTMLElement {
           : null,
       ),
     );
-  info.push(orderBlock(s), myCard(s));
+  info.push(
+    orderBlock(s),
+    myCard(s),
+    scansBlock(s, () => {
+      const fresh = byNum(s.num);
+      if (fresh && current === s.num) paint(fresh, false);
+    }),
+  );
   const slot = slotOf(s.num);
   info.push(h("p", { class: "mut" }, `Classeur : page ${slot.page}, case ${slot.case}.`));
   if (s.status === "a_verifier")

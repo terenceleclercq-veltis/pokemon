@@ -18,6 +18,10 @@ achats enregistrés). Prix payé et date d'achat dans « Ma carte » (dépenses 
 Statistiques : chiffres clés, budget mensuel avec report (le non-dépensé passe au mois suivant), graphique des
 dépenses avec le disponible de chaque mois, reste à payer détaillé. Illustrateur de chaque carte (relevé chez TCGdex avec le prix), affiché dans la fiche et la visionneuse : un clic, ou
 une recherche par son nom, montre les espèces dont une carte est de lui.
+Scanner guidé de tes cartes (fiche d'une espèce au binder, « Scanner la carte ») : caméra en direct, contrôle du
+cadrage, de la stabilité, de la netteté et des reflets, déclenchement automatique ; recto et verso redressés à plat
+(63 × 88 mm à 20 px/mm), gros plans des coins (et des bords au choix), repli sur l'appareil photo du téléphone ;
+photos privées stockées dans R2, vignettes et visionneuse dans la fiche.
 
 ## Pile technique et pourquoi
 
@@ -51,7 +55,10 @@ Le déploiement passe exclusivement par la CI : voir [`docs/gitops.md`](../docs/
   Une seule politique Trusted Types (`sw`), qui n'accepte que l'URL du service worker ; celui-ci a sa propre CSP
   (`connect-src` limité au site et aux deux hôtes d'images).
 - **XSS** : aucun `innerHTML` (règle ESLint), construction DOM avec liste blanche d'attributs et d'URL.
-- **Entrées** : Zod partout (bornes, listes blanches, objets stricts, tailles), corps limité à 256 Ko, SQL paramétré.
+- **Entrées** : Zod partout (bornes, listes blanches, objets stricts, tailles), corps limité à 256 Ko (photos du
+  scanner : 8 Mo, type vérifié sur les premiers octets), SQL paramétré.
+- **Photos** : compartiment R2 privé, servies par le Worker derrière Access (cache privé) ; caméra autorisée pour le
+  site seul (Permissions-Policy) ; les photos sont réencodées dans le navigateur, sans métadonnées (ni position GPS).
 - **Réponses externes** (TCGdex) validées avant usage ; délais d'expiration ; hôtes figés (anti-SSRF). Images
   affichées uniquement depuis `assets.tcgdex.net` et `raw.githubusercontent.com` (CSP), jamais copiées dans le dépôt.
 - **Limite de débit** : 120 requêtes/min par utilisateur (binding Workers Rate Limiting).

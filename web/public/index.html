@@ -196,6 +196,58 @@
       <p id="v-cap" class="vcap"></p>
     </dialog>
 
+    <dialog id="scan" class="scanner" aria-labelledby="scan-title">
+      <div class="scan-head">
+        <h2 id="scan-title">Scanner la carte</h2>
+        <span id="scan-step" class="scan-step"></span>
+        <button class="icon" type="button" data-close aria-label="Fermer le scanner">×</button>
+      </div>
+      <div id="scan-intro" class="scan-body">
+        <p>
+          Le scanner te guide pour photographier ta carte sous toutes les coutures : recto et verso entiers (redressés à
+          plat), puis des gros plans des coins. Il déclenche tout seul quand l'image est nette, stable et bien cadrée.
+        </p>
+        <ol class="scan-tips">
+          <li>Sors la carte de son sleeve ou de son toploader.</li>
+          <li>Pose-la sur un <strong>fond sombre et mat</strong> (tissu ou carton noir).</li>
+          <li>Lumière douce et indirecte (près d'une fenêtre, sans soleil direct), pas de flash.</li>
+          <li>Tiens le téléphone bien à plat au-dessus de la carte.</li>
+        </ol>
+        <label class="check"><input id="scan-edges" type="checkbox" /> Aussi les gros plans des quatre bords</label>
+        <div class="row">
+          <button id="scan-start" type="button" class="primary">Commencer</button>
+        </div>
+      </div>
+      <div id="scan-live" class="scan-live" hidden>
+        <div class="scan-view">
+          <video id="scan-video" playsinline muted></video>
+          <canvas id="scan-overlay" aria-hidden="true"></canvas>
+        </div>
+        <p id="scan-msg" class="scan-msg" role="status" aria-live="polite"></p>
+        <div class="scan-bar">
+          <button id="scan-native" type="button">Appareil photo</button>
+          <button id="scan-shot" type="button" class="shutter" aria-label="Prendre la photo maintenant"></button>
+          <button id="scan-skip" type="button">Passer</button>
+        </div>
+        <input id="scan-file" type="file" accept="image/*" capture="environment" hidden />
+      </div>
+      <div id="scan-review" class="scan-body" hidden>
+        <p class="mut">Vérifie les photos ; « Refaire » reprend une seule photo.</p>
+        <ul id="scan-shots" class="scan-shots"></ul>
+        <div class="row">
+          <button id="scan-save" type="button" class="primary">Enregistrer le scan</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="photo-view" class="viewer" aria-label="Photo de ta carte">
+      <button class="icon vclose" type="button" data-close aria-label="Fermer la photo">×</button>
+      <button id="pv-prev" class="icon vnav" type="button" aria-label="Photo précédente">‹</button>
+      <figure class="pv-fig"><img id="pv-img" alt="" draggable="false" /></figure>
+      <button id="pv-next" class="icon vnav" type="button" aria-label="Photo suivante">›</button>
+      <p id="pv-cap" class="vcap"></p>
+    </dialog>
+
     <dialog id="buy" class="sheet" aria-labelledby="buy-title">
       <div class="sheet-head">
         <h2 id="buy-title">Liste d'achat</h2>

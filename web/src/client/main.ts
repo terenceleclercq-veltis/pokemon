@@ -10,6 +10,8 @@ import { renderGrid, renderStats, visibleNums } from "./grid";
 import { pushState, readState, rememberMode, replaceState, type Mode, type ViewState } from "./router";
 import { initDashboard } from "./stats";
 import { alertHit, artImg, store, type Filter, type Sort } from "./state";
+import { initScanner } from "./scanner";
+import { initPhotoViewer } from "./scans";
 import { initViewer } from "./viewer";
 import { renderVitrine } from "./vitrine";
 
@@ -254,6 +256,8 @@ bindTools();
 bindNavigation();
 bindSettings();
 initViewer();
+initScanner();
+initPhotoViewer();
 initBuylist(load);
 // import de commandes Cardmarket (depuis la liste d'achat) : pokédex rechargé, liste d'achat à jour
 initCmImport(async () => {

@@ -1,6 +1,6 @@
 // Configuration déclarative du Worker (source de vérité GitOps).
 // Top-level = développement local ; env.staging / env.production = déployés par la CI uniquement.
-// Les clés non héritées (vars, d1_databases, ratelimits) sont répétées dans chaque environnement.
+// Les clés non héritées (vars, d1_databases, r2_buckets, ratelimits) sont répétées dans chaque environnement.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "pokedex-kanto",
@@ -28,6 +28,8 @@
       "migrations_dir": "migrations",
     },
   ],
+  // photos du scanner (privées, servies par le Worker derrière Access) ; en local : compartiment simulé par wrangler
+  "r2_buckets": [{ "binding": "PHOTOS", "bucket_name": "pokedex-photos-dev" }],
   // développement local et tests uniquement (les suites enchaînent beaucoup d'appels) ; staging et production : 120/min
   "ratelimits": [{ "name": "RATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 2000, "period": 60 } }],
   "env": {
@@ -49,6 +51,7 @@
           "migrations_dir": "migrations",
         },
       ],
+      "r2_buckets": [{ "binding": "PHOTOS", "bucket_name": "pokedex-photos-staging" }],
       "ratelimits": [{ "name": "RATE_LIMITER", "namespace_id": "1002", "simple": { "limit": 120, "period": 60 } }],
       "triggers": { "crons": ["*/30 * * * *"] },
     },
@@ -70,6 +73,7 @@
           "migrations_dir": "migrations",
         },
       ],
+      "r2_buckets": [{ "binding": "PHOTOS", "bucket_name": "pokedex-photos" }],
       "ratelimits": [{ "name": "RATE_LIMITER", "namespace_id": "1003", "simple": { "limit": 120, "period": 60 } }],
       "triggers": { "crons": ["*/30 * * * *"] },
     },
