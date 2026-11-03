@@ -51,7 +51,8 @@ jobs:
           {
             echo "### Clé publique de signature ($ENV)"
             echo
-            echo "À ajouter au JWKS inline de l'émetteur, dans la console Claude :"
+            echo "À ajouter au JWKS inline de l'émetteur, dans la console Claude (kid unique : à côté des autres clés ;"
+            echo "retirer ensuite l'ancienne clé de cet environnement) :"
             echo
             echo '```json'
             echo "$pub"
