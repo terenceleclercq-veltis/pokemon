@@ -290,15 +290,27 @@ describe("pré-évaluation PSA par Claude", () => {
     expect(api.calls).toEqual([]);
   });
 
+  it("format imposé refusé par Anthropic (grammaire trop lourde) : repli sans format imposé, analyse réussie", async () => {
+    const api = anthropicApi({ grammar: true });
+    mockOutbound({}, api.handler);
+    const id = await scanWith();
+    const result = (await lines(await analyse(id))).at(-1)?.analyse as { verdict: string; constats: unknown };
+    expect(result).toMatchObject({ verdict: "candidat_10", constats: PERFECT });
+    const asked = api.calls.filter((c) => c.path === "/v1/messages").map((c) => c.body as { output_config: object });
+    expect(asked.map((b) => "format" in b.output_config)).toEqual([true, false]);
+  });
+
   it("Claude en erreur : message en flux, analyse marquée en échec, fichiers supprimés", async () => {
     const api = anthropicApi({ messages: 400 });
     mockOutbound({}, api.handler);
     const id = await scanWith();
     const out = await lines(await analyse(id));
-    expect(out.at(-1)).toEqual({ erreur: "Claude a répondu 400" });
+    // raison d'Anthropic et étape fautive enregistrées : diagnostic sans fouiller les journaux
+    const reason = "analyse refusée — Claude a répondu 400 (invalid_request_error) : refusé";
+    expect(out.at(-1)).toEqual({ erreur: reason });
     expect(await env.DB.prepare("SELECT state, erreur FROM analyse").first()).toEqual({
       state: "echec",
-      erreur: "Claude a répondu 400",
+      erreur: reason,
     });
     expect(api.calls.filter((c) => c.method === "DELETE")).toHaveLength(10);
   });

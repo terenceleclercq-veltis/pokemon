@@ -1,5 +1,6 @@
 // Pré-évaluation PSA d'un scan par Claude : Claude relève l'état des coins, des bords et de la surface sur les photos
 // (format imposé) ; le site mesure lui-même le centrage ; le verdict découle de règles fixes, pas du modèle.
+import { APIError } from "@anthropic-ai/sdk";
 import type Anthropic from "@anthropic-ai/sdk";
 import * as z from "zod/mini";
 
@@ -44,7 +45,11 @@ export const findings = z.object({
 });
 export type Findings = z.infer<typeof findings>;
 
-/** Le même format en JSON Schema, imposé à Claude (sorties structurées). */
+/**
+ * Format de réponse imposé à Claude (sorties structurées), en JSON Schema. Volontairement plat : coins, bords et
+ * surfaces sont des listes d'entrées identiques. Une propriété par coin et par bord donnait une grammaire trop lourde,
+ * refusée par Anthropic (« The compiled grammar is too large », 03/11/2026).
+ */
 const strict = (properties: Record<string, unknown>) => ({
   type: "object",
   additionalProperties: false,
@@ -53,33 +58,84 @@ const strict = (properties: Record<string, unknown>) => ({
 });
 const enumOf = (values: readonly string[]) => ({ type: "string", enum: [...values] });
 const strings = { type: "array", items: { type: "string" } };
-const faces = (t: unknown) => strict({ recto: t, verso: t });
+const list = (item: Record<string, unknown>) => ({ type: "array", items: strict(item) });
 export const FINDINGS_SCHEMA = strict({
   qualite_photos: strict({ exploitable: { type: "boolean" }, problemes: strings }),
-  coins: faces(
-    strict(
-      Object.fromEntries(
-        CORNERS.map((c) => [
-          c,
-          strict({ etat: enumOf(CORNER), confiance: enumOf(CONFIDENCE), detail: { type: "string" } }),
-        ]),
-      ),
-    ),
-  ),
-  bords: faces(
-    strict(
-      Object.fromEntries(
-        EDGES.map((e) => [
-          e,
-          strict({ blanchiment: enumOf(EDGE), confiance: enumOf(CONFIDENCE), detail: { type: "string" } }),
-        ]),
-      ),
-    ),
-  ),
-  surface: faces(strict({ gravite: enumOf(SURFACE), defauts: strings, confiance: enumOf(CONFIDENCE) })),
-  centrage_visuel: faces(enumOf(VISUAL)),
+  coins: list({
+    face: enumOf(FACES),
+    coin: enumOf(CORNERS),
+    etat: enumOf(CORNER),
+    confiance: enumOf(CONFIDENCE),
+    detail: { type: "string" },
+  }),
+  bords: list({
+    face: enumOf(FACES),
+    bord: enumOf(EDGES),
+    blanchiment: enumOf(EDGE),
+    confiance: enumOf(CONFIDENCE),
+    detail: { type: "string" },
+  }),
+  surface: list({ face: enumOf(FACES), gravite: enumOf(SURFACE), defauts: strings, confiance: enumOf(CONFIDENCE) }),
+  centrage_visuel: strict({ recto: enumOf(VISUAL), verso: enumOf(VISUAL) }),
   resume: { type: "string" },
 });
+
+/** La réponse de Claude telle qu'elle arrive (listes), revalidée côté serveur avant d'être rangée. */
+const face = z.enum(FACES);
+export const reply = z.object({
+  qualite_photos: findings.shape.qualite_photos,
+  coins: z
+    .array(z.object({ face, coin: z.enum(CORNERS), etat: z.enum(CORNER), confiance: confidence, detail }))
+    .check(z.maxLength(16)),
+  bords: z
+    .array(z.object({ face, bord: z.enum(EDGES), blanchiment: z.enum(EDGE), confiance: confidence, detail }))
+    .check(z.maxLength(16)),
+  surface: z
+    .array(z.object({ face, gravite: z.enum(SURFACE), defauts: surface.shape.defauts, confiance: confidence }))
+    .check(z.maxLength(4)),
+  centrage_visuel: findings.shape.centrage_visuel,
+  resume: findings.shape.resume,
+});
+export type Reply = z.infer<typeof reply>;
+
+/** Range les listes de Claude par face, coin et bord ; une entrée manquante rend la réponse inutilisable. */
+export function arrange(r: Reply): Findings {
+  const pick = <T extends { face: Face }>(items: T[], ok: (x: T) => boolean, what: string): T => {
+    const found = items.find(ok);
+    if (!found) throw new AnalyseError(`réponse de Claude incomplète : ${what} manquant`);
+    return found;
+  };
+  const byCorner = (f: Face) =>
+    Object.fromEntries(
+      CORNERS.map((c) => {
+        const { etat, confiance, detail } = pick(r.coins, (x) => x.face === f && x.coin === c, `coin ${c} du ${f}`);
+        return [c, { etat, confiance, detail }];
+      }),
+    ) as Findings["coins"]["recto"];
+  const byEdge = (f: Face) =>
+    Object.fromEntries(
+      EDGES.map((b) => {
+        const { blanchiment, confiance, detail } = pick(
+          r.bords,
+          (x) => x.face === f && x.bord === b,
+          `bord ${b} du ${f}`,
+        );
+        return [b, { blanchiment, confiance, detail }];
+      }),
+    ) as Findings["bords"]["recto"];
+  const bySurface = (f: Face) => {
+    const { gravite, defauts, confiance } = pick(r.surface, (x) => x.face === f, `surface du ${f}`);
+    return { gravite, defauts, confiance };
+  };
+  return {
+    qualite_photos: r.qualite_photos,
+    coins: { recto: byCorner("recto"), verso: byCorner("verso") },
+    bords: { recto: byEdge("recto"), verso: byEdge("verso") },
+    surface: { recto: bySurface("recto"), verso: bySurface("verso") },
+    centrage_visuel: r.centrage_visuel,
+    resume: r.resume,
+  };
+}
 
 // --- centrage mesuré par le site -------------------------------------------------------------------------------------
 
@@ -229,8 +285,31 @@ floue, masquée par un reflet ou trop petite. Ne donne « parfait » ou « aucun
 zone nette.
 Distingue les défauts de la carte des artefacts de photo (reflet, poussière sur l'objectif, compression, sleeve).
 Qualité des photos : « exploitable » à faux si l'ensemble ne permet pas de juger la carte ; liste les problèmes.
+Réponse : « coins » contient 8 entrées, une par coin de chaque face (« coin » hg, hd, bd ou bg = haut gauche, \
+haut droit, bas droit, bas gauche) ; « bords » 8 entrées, une par bord de chaque face (« bord » h, d, b ou g) ; \
+« surface » 2 entrées, une par face.
 Réponds en français, en phrases courtes ; « detail » vide s'il n'y a rien à signaler ; « resume » en deux ou trois \
 phrases, sans donner de note.`;
+
+/** Sans format imposé (repli) : la même réponse, demandée en JSON seul et revalidée de la même façon. */
+const JSON_ONLY = `Réponds uniquement par un objet JSON, sans texte autour ni bloc de code, conforme à ce schéma : \
+${JSON.stringify(FINDINGS_SCHEMA)}`;
+
+/** Le JSON de la réponse : le texte entier, ou à défaut l'objet entre la première et la dernière accolade. */
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    const from = text.indexOf("{");
+    const to = text.lastIndexOf("}");
+    if (from < 0 || to <= from) throw new AnalyseError("réponse de Claude illisible");
+    try {
+      return JSON.parse(text.slice(from, to + 1));
+    } catch {
+      throw new AnalyseError("réponse de Claude illisible");
+    }
+  }
+}
 
 export interface PhotoRef {
   id: string;
@@ -245,6 +324,23 @@ export interface Outcome {
 }
 
 export class AnalyseError extends Error {}
+
+/**
+ * Message lisible d'un échec, enregistré avec l'analyse et affiché dans la fiche : statut, type et message renvoyés
+ * par Anthropic (« credit balance too low », image refusée…), jamais de secret.
+ */
+export function explain(e: unknown): string {
+  if (e instanceof AnalyseError) return e.message;
+  if (e instanceof APIError) {
+    const body = e.error as { error?: { message?: unknown } } | undefined;
+    const detail = typeof body?.error?.message === "string" ? body.error.message : e.message;
+    return `Claude a répondu ${String(e.status ?? "sans statut")}${e.type ? ` (${e.type})` : ""} : ${detail}`.slice(
+      0,
+      400,
+    );
+  }
+  return e instanceof Error ? e.message.slice(0, 400) : "échec de l'appel à Claude";
+}
 
 /**
  * Envoie les photos (API Files : pas d'encodage base64 dans le Worker, plan gratuit à 10 ms de calcul) puis demande
@@ -274,42 +370,45 @@ export async function askClaude(
         return { ...p, file: meta.id };
       }),
     );
-    const uploaded = results.map((r) => {
-      if (r.status === "rejected") throw r.reason;
-      return r.value;
+    const uploaded = results.map((r, i) => {
+      if (r.status === "fulfilled") return r.value;
+      if (r.reason instanceof AnalyseError) throw r.reason;
+      throw new AnalyseError(`envoi des photos refusé (${photos[i]?.step ?? "?"}) — ${explain(r.reason)}`);
     });
     progress("analyse");
-    const message = await client.messages.create({
-      model,
-      max_tokens: 16_000,
-      system: SYSTEM,
-      output_config: { effort: "high", format: { type: "json_schema", schema: FINDINGS_SCHEMA } },
-      messages: [
-        {
-          role: "user",
-          content: [
-            ...uploaded.flatMap((p, i) => [
-              { type: "text" as const, text: `Photo ${i + 1} : ${STEP_LABEL(p.step)}` },
-              { type: "image" as const, source: { type: "file" as const, file_id: p.file } },
-            ]),
-            { type: "text" as const, text: "Relève l'état de cette carte dans le format demandé." },
-          ],
-        },
-      ],
-    });
+    const content = [
+      ...uploaded.flatMap((p, i) => [
+        { type: "text" as const, text: `Photo ${i + 1} : ${STEP_LABEL(p.step)}` },
+        { type: "image" as const, source: { type: "file" as const, file_id: p.file } },
+      ]),
+      { type: "text" as const, text: "Relève l'état de cette carte dans le format demandé." },
+    ];
+    const ask = (structured: boolean) =>
+      client.messages.create({
+        model,
+        max_tokens: 16_000,
+        system: structured ? SYSTEM : `${SYSTEM}\n\n${JSON_ONLY}`,
+        output_config: structured
+          ? { effort: "high", format: { type: "json_schema", schema: FINDINGS_SCHEMA } }
+          : { effort: "high" },
+        messages: [{ role: "user", content }],
+      });
+    const message = await ask(true)
+      .catch((e: unknown) => {
+        // format imposé refusé (grammaire trop lourde) : même demande sans format imposé, réponse revalidée ici
+        if (e instanceof APIError && e.status === 400 && /grammar/i.test(e.message)) return ask(false);
+        throw e;
+      })
+      .catch((e: unknown) => {
+        throw new AnalyseError(`analyse refusée — ${explain(e)}`);
+      });
     if (message.stop_reason === "refusal") throw new AnalyseError("Claude a refusé l'analyse");
     if (message.stop_reason === "max_tokens") throw new AnalyseError("réponse de Claude tronquée");
     const text = message.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
-    let raw: unknown;
-    try {
-      raw = JSON.parse(text);
-    } catch {
-      throw new AnalyseError("réponse de Claude illisible");
-    }
-    const parsed = findings.safeParse(raw);
+    const parsed = reply.safeParse(parseJson(text));
     if (!parsed.success) throw new AnalyseError("réponse de Claude hors format");
     return {
-      findings: parsed.data,
+      findings: arrange(parsed.data),
       input_tokens: message.usage.input_tokens,
       output_tokens: message.usage.output_tokens,
     };
