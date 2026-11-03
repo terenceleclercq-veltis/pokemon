@@ -25,6 +25,7 @@ main ──► CI ──► staging (auto : migrations D1, déploiement, smoke t
 | `deploy.yml` | push sur `main` | CI → staging → production |
 | `_deploy-env.yml` | appelé par `deploy.yml` | garde-fous, migrations, déploiement étiqueté par commit, smoke tests, rollback auto |
 | `rollback.yml` | manuel | retour à une version donnée |
+| `wif-keys.yml` | manuel | clé de signature de la fédération d'identité Claude (secret Worker, clé publique dans le résumé) |
 | `catalogue.yml` | manuel | sauvegarde D1 puis application idempotente du catalogue |
 | `codeql.yml` | PR, main, hebdo | analyse statique (TS, Python, workflows) |
 | `dependabot.yml` | hebdo | mises à jour groupées, délai de 7 jours avant adoption |
@@ -54,13 +55,32 @@ dans une livraison suivante. Jamais de `DROP` ou de renommage dans la même livr
    l'étape 3 de `scripts/migrer-compte-pokemon.sh` pour le renouveler, puis mettre à jour `CI_SERVICE_TOKEN_ID`.
    Session de **1 mois** (`730h`) et redirection automatique vers l'unique fournisseur d'identité (choix de
    Terence, 01/11/2026 : moins de reconnexions sur téléphone).
-4. Aucun secret applicatif : l'ancien `ENC_KEY` (liaison API Cardmarket, retirée) a été supprimé des Workers le 30/10/2026.
+4. Un seul secret applicatif, `WIF_PRIVATE_JWK` : la clé de signature de la fédération d'identité Claude (étape 7),
+   écrite par le workflow `wif-keys.yml`. L'ancien `ENC_KEY` (liaison API Cardmarket, retirée) a été supprimé des
+   Workers le 30/10/2026.
 5. Jeton API CI limité au compte pokemon : *Workers Scripts: Edit*, *D1: Edit*, *Account Settings: Read*
    (et *Workers R2 Storage: Edit* si le déploiement le réclame pour le binding des photos).
 6. Photos du scanner : R2 activé sur le compte (tableau de bord, R2 Object Storage, offre gratuite de 10 Go), puis
    compartiments `pokedex-photos-staging` et `pokedex-photos` (`npx wrangler r2 bucket create …`), privés (pas
    d'accès public ni de domaine) : le Worker sert les photos lui-même, derrière Access. En local et en test, le
    compartiment `pokedex-photos-dev` est simulé par wrangler.
+7. Analyse par Claude (Opus 5.5), sans clé API : **fédération d'identité** (Workload Identity Federation, choix de
+   Terence le 03/11/2026). Cloudflare ne fournit pas d'identité OIDC aux Workers, et le jeton Access (1 mois) dépasse
+   la limite d'Anthropic (49 h) : le Worker est donc son propre émetteur. Pour chaque échange, il signe un jeton ES256
+   de 5 minutes à usage unique (`iss` `https://pokedex-kanto.pokedex-terence.workers.dev`, `sub`
+   `pokedex-kanto:<env>`, `aud` `https://api.anthropic.com`, `jti` aléatoire) qu'Anthropic échange contre un jeton
+   d'accès de 10 minutes, lié à un compte de service.
+   1. Clés : lancer `wif-keys.yml` (Actions, « Run workflow ») pour `staging` puis `production`. La clé privée part
+      dans le secret Worker `WIF_PRIVATE_JWK` sans être affichée ; la clé publique est dans le résumé du job.
+      Rotation : relancer, ajouter la nouvelle clé publique au JWKS de l'émetteur, puis retirer l'ancienne.
+   2. Console Claude (`platform.claude.com`, rôle admin) : des crédits (Billing) ; un espace de travail `pokedex` avec
+      un plafond de dépenses mensuel.
+   3. *Settings* → *Workload identity* → *Connect workload* → *Custom OIDC* : URL de l'émetteur ci-dessus, JWKS
+      **inline** (`{"keys": [clé staging, clé production]}`), durée maximale du jeton 1 h, contrôle de rejeu (`jti`)
+      actif ; compte de service `pokedex-analyse`, membre de l'espace `pokedex` ; règle `pokedex-kanto` : sujet
+      `pokedex-kanto:*`, audience `https://api.anthropic.com`, portée `workspace:developer`, jeton de 600 s.
+   4. Les identifiants (organisation, règle `fdrl_…`, compte de service `svac_…`, espace `wrkspc_…`) vont dans
+      `wrangler.jsonc` : ce ne sont pas des secrets, ils ne servent à rien sans un jeton signé par le Worker.
 
 **Promos au style IR** : pour les espèces sans IR ni SIR en français, des promos Black Star au style « Illustration
 Rare » sont ajoutées à la main (catégorie `PROMO_IR`, comptée comme IR) après vérification visuelle ; TCGdex les classe
