@@ -103,7 +103,10 @@ function gallery(scan: ScanMeta): HTMLElement {
 }
 
 function render(s: Species, { scans, claude }: Scans, changed: () => void): Node[] {
-  if (!scans.length) return [h("p", { class: "mut" }, "Aucune photo : le scanner prend recto, verso et gros plans.")];
+  if (!scans.length)
+    return [
+      h("p", { class: "mut" }, "Aucune photo : deux suffisent, le recto puis le verso (coins découpés tout seuls)."),
+    ];
   const remove = (scan: ScanMeta) =>
     h(
       "button",
@@ -183,9 +186,10 @@ export function scansBlock(s: Species, changed: () => void): HTMLElement | null 
           type: "button",
           class: "primary",
           onclick: () => {
-            openScanner(s, () => {
-              cache.delete(s.num);
-              changed();
+            // en série, d'autres cartes peuvent être scannées : leur cache est oublié aussi
+            openScanner(s, (num) => {
+              cache.delete(num);
+              if (num === s.num) changed();
             });
           },
         },

@@ -409,8 +409,8 @@ app.put("/api/scans/:id/photos/:step", async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM photo WHERE scan_id = ?1 AND step = ?2").bind(id, step),
     c.env.DB.prepare(
-      `INSERT INTO photo (id, scan_id, step, mime, width, height, bytes, quad, sharpness, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+      `INSERT INTO photo (id, scan_id, step, mime, width, height, bytes, quad, sharpness, fond, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
     ).bind(
       pid,
       id,
@@ -421,6 +421,7 @@ app.put("/api/scans/:id/photos/:step", async (c) => {
       body.length,
       q.quad ? JSON.stringify(q.quad) : null,
       q.sharp ?? null,
+      q.fond ? JSON.stringify(q.fond) : null,
       new Date().toISOString(),
     ),
   ]);
@@ -440,24 +441,41 @@ app.put("/api/photos/:id/thumb", async (c) => {
   return c.json({ ok: true });
 });
 
+/** Espèces dont au moins une carte a été scannée : le scanner en série propose les autres. */
+app.get("/api/scans", async (c) => {
+  const rows = await c.env.DB.prepare("SELECT DISTINCT species_num FROM scan ORDER BY species_num").all<{
+    species_num: number;
+  }>();
+  return c.json({ species: rows.results.map((r) => r.species_num) });
+});
+
 app.get("/api/species/:num/scans", async (c) => {
   const num = speciesNum(c);
-  type PhotoRow = { id: string; scan_id: string; step: string; width: number; height: number; sharpness: number };
+  type PhotoRow = {
+    id: string;
+    scan_id: string;
+    step: string;
+    width: number;
+    height: number;
+    sharpness: number;
+    fond: string | null;
+  };
   const [scans, photos, analyses] = await c.env.DB.batch([
     c.env.DB.prepare("SELECT id, card_id, created_at FROM scan WHERE species_num = ? ORDER BY created_at DESC").bind(
       num,
     ),
     c.env.DB.prepare(
-      `SELECT p.id, p.scan_id, p.step, p.width, p.height, p.sharpness FROM photo p JOIN scan s ON s.id = p.scan_id
-       WHERE s.species_num = ? ORDER BY p.created_at`,
+      `SELECT p.id, p.scan_id, p.step, p.width, p.height, p.sharpness, p.fond FROM photo p
+       JOIN scan s ON s.id = p.scan_id WHERE s.species_num = ? ORDER BY p.created_at`,
     ).bind(num),
     c.env.DB.prepare(
       `SELECT a.* FROM analyse a JOIN scan s ON s.id = a.scan_id WHERE s.species_num = ? ORDER BY a.created_at DESC`,
     ).bind(num),
   ]);
-  const byScan = new Map<string, Omit<PhotoRow, "scan_id">[]>();
-  for (const { scan_id, ...p } of (photos?.results ?? []) as PhotoRow[])
-    byScan.set(scan_id, [...(byScan.get(scan_id) ?? []), p]);
+  type PhotoOut = Omit<PhotoRow, "scan_id" | "fond"> & { fond: number[] | null };
+  const byScan = new Map<string, PhotoOut[]>();
+  for (const { scan_id, fond, ...p } of (photos?.results ?? []) as PhotoRow[])
+    byScan.set(scan_id, [...(byScan.get(scan_id) ?? []), { ...p, fond: fond ? (JSON.parse(fond) as number[]) : null }]);
   const analysesOf = new Map<string, ReturnType<typeof analyseOut>[]>();
   for (const a of (analyses?.results ?? []) as AnalyseRow[])
     analysesOf.set(a.scan_id, [...(analysesOf.get(a.scan_id) ?? []), analyseOut(a)]);

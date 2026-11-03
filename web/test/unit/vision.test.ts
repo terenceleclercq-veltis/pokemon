@@ -2,19 +2,23 @@ import { describe, expect, it } from "vitest";
 import {
   borders,
   CARD_RATIO,
+  cardRegion,
   cutCorners,
   detectCard,
-  framing,
   glare,
   gray,
+  growQuad,
   homography,
-  motion,
+  matColor,
   otsu,
   project,
+  pxPerMm,
   quadMotion,
   quadShape,
   refineQuad,
+  sameFace,
   sharpness,
+  signature,
   warp,
   type Pt,
   type Quad,
@@ -111,10 +115,6 @@ describe("scanner : repérage de la carte", () => {
     const a = card(120, 160, 200, 0);
     const b = card(122, 160, 200, 0);
     expect(quadMotion(a, b, 240, 320)).toBeCloseTo(2 / Math.hypot(240, 320), 5);
-    const g1 = new Uint8Array(100).fill(10);
-    const g2 = new Uint8Array(100).fill(30);
-    expect(motion(g1, g1)).toBe(0);
-    expect(motion(g1, g2)).toBe(20);
   });
 });
 
@@ -136,26 +136,6 @@ describe("scanner : qualité de la prise", () => {
     const q = card(100, 130, 200, 0);
     expect(glare(scene(w, h, q), w, q)).toBe(0);
     expect(glare(scene(w, h, q, { hot: true }), w, q)).toBeGreaterThan(0.02);
-  });
-  it("gros plan : le coin ou le bord demandé est bien au centre du cadre", () => {
-    const [w, h] = [200, 200];
-    // coin haut gauche de la carte au centre de l'image : la carte occupe le quart bas droit
-    const g = gray(
-      scene(w, h, [
-        { x: 100, y: 100 },
-        { x: 400, y: 100 },
-        { x: 400, y: 400 },
-        { x: 100, y: 400 },
-      ]),
-      w,
-      h,
-    );
-    const r = { x: 0, y: 0, w, h };
-    expect(framing(g, w, r, "hg")).toBeGreaterThan(100);
-    expect(framing(g, w, r, "bd")).toBe(0);
-    expect(framing(g, w, r, "h")).toBeGreaterThan(40);
-    expect(framing(g, w, r, "g")).toBeGreaterThan(40);
-    expect(framing(g, w, r, "d")).toBe(0);
   });
 });
 
@@ -282,11 +262,25 @@ describe("scanner : centrage", () => {
   });
 });
 
-/** Verso (bordure bleu foncé de 3,5 mm, motif bleu clair) aux coins arrondis, tourné de 4°, sur le fond `bg`. */
-function back(w: number, h: number, bg: number[]) {
+interface PhotoOpts {
+  deg?: number;
+  edge?: number[];
+  art?: (u: number, v: number) => number[];
+  gain?: number;
+}
+
+/**
+ * Photo synthétique d'une carte aux coins arrondis (63 × 88 mm, 80 % de la hauteur), tournée de `deg` degrés, sur le
+ * fond `bg` : bordure `edge` de 3,5 mm, illustration `art(u, v)` (mm). Par défaut, un verso : bordure bleu foncé,
+ * motif bleu clair. `gain` : exposition.
+ */
+function photo(w: number, h: number, bg: number[], o: PhotoOpts = {}) {
   const rgba = new Uint8ClampedArray(w * h * 4);
   const s = (h * 0.8) / 88; // px par mm
-  const a = (4 * Math.PI) / 180;
+  const a = ((o.deg ?? 4) * Math.PI) / 180;
+  const edge = o.edge ?? [40, 38, 64];
+  const art = o.art ?? ((u: number, v: number) => (Math.sin(u / 3 + v / 5) > 0 ? [110, 150, 200] : [90, 130, 185]));
+  const gain = o.gain ?? 1;
   const color = (x: number, y: number) => {
     // repère de la carte, en mm depuis son coin haut gauche
     const [dx, dy] = [x - w / 2, y - h / 2];
@@ -294,8 +288,7 @@ function back(w: number, h: number, bg: number[]) {
     const v = (-dx * Math.sin(a) + dy * Math.cos(a)) / s + 44;
     const out = Math.hypot(Math.max(3 - u, u - 60, 0), Math.max(3 - v, v - 85, 0)) > 3;
     if (u < 0 || u > 63 || v < 0 || v > 88 || out) return bg;
-    if (u < 3.5 || u > 59.5 || v < 3.5 || v > 84.5) return [40, 38, 64];
-    return Math.sin(u / 3 + v / 5) > 0 ? [110, 150, 200] : [90, 130, 185];
+    return (u < 3.5 || u > 59.5 || v < 3.5 || v > 84.5 ? edge : art(u, v)).map((c) => c * gain);
   };
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
@@ -311,3 +304,67 @@ function back(w: number, h: number, bg: number[]) {
     }
   return rgba;
 }
+const back = (w: number, h: number, bg: number[]) => photo(w, h, bg);
+
+/** Coins réels de la carte de `photo` (haut gauche, haut droit, bas droit, bas gauche de la carte). */
+function truth(w: number, h: number, deg = 4): Quad {
+  const s = (h * 0.8) / 88;
+  const a = (deg * Math.PI) / 180;
+  return [
+    [0, 0],
+    [63, 0],
+    [63, 88],
+    [0, 88],
+  ].map(([u, v]) => {
+    const [dx, dy] = [(u! - 31.5) * s, (v! - 44) * s];
+    return { x: w / 2 + dx * Math.cos(a) - dy * Math.sin(a), y: h / 2 + dx * Math.sin(a) + dy * Math.cos(a) };
+  }) as Quad;
+}
+
+describe("scanner : bord réel, retournement, résolution", () => {
+  it("verso sur fond sombre, coupé à la détection : le vrai bord est retrouvé à moins de 0,5 mm", () => {
+    const [w, h] = [480, 640];
+    const rgba = photo(w, h, [55, 42, 45]);
+    const g = gray(rgba, w, h);
+    const q = refineQuad(g, w, h, detectCard(g, w, h)!.quad);
+    // fond mesuré autour du contour : à 4-10 mm, au-delà de la bordure perdue
+    const cut = (quad: Quad) => cutCorners(warp(rgba, w, h, quad, 630, 880), 630, 880, 10, matColor(rgba, w, h, quad));
+    expect(matColor(rgba, w, h, q)).toEqual([55, 42, 45]);
+    expect(cut(q)).toHaveLength(4);
+    const grown = growQuad(rgba, w, h, q);
+    // bordure bleu foncé et tapis noir proches : sans le fond mesuré, les coins passeraient pour coupés
+    expect(cutCorners(warp(rgba, w, h, grown, 630, 880), 630, 880, 10)).toHaveLength(4);
+    expect(cut(grown)).toEqual([]);
+    const ppm = pxPerMm(grown);
+    truth(w, h).forEach((p, i) => expect(near(p, grown[i]!) / ppm).toBeLessThan(0.5));
+  });
+  it("carte bien détourée sur fond uni : rien ne bouge", () => {
+    const [w, h] = [480, 640];
+    const rgba = photo(w, h, [235, 235, 230]);
+    const g = gray(rgba, w, h);
+    const q = refineQuad(g, w, h, detectCard(g, w, h)!.quad);
+    growQuad(rgba, w, h, q).forEach((p, i) => expect(near(p, q[i]!)).toBeLessThan(1));
+  });
+  it("retournement : même face malgré l'exposition ou un demi-tour sur la table, autre face reconnue", () => {
+    const [w, h] = [360, 480];
+    const bg = [30, 28, 32];
+    const edge = [200, 200, 195];
+    const art = (u: number, v: number) =>
+      Math.hypot(u - 31.5, v - 28) < 12 ? [230, 80, 60] : [80 + u * 2, 120, 90 + v];
+    const sig = (rgba: Uint8ClampedArray) => {
+      const g = gray(rgba, w, h);
+      return signature(rgba, w, h, refineQuad(g, w, h, detectCard(g, w, h)!.quad));
+    };
+    const recto = sig(photo(w, h, bg, { edge, art }));
+    expect(sameFace(recto, sig(photo(w, h, bg, { edge, art, gain: 0.7 })))).toBeGreaterThan(0.9);
+    expect(sameFace(recto, sig(photo(w, h, bg, { edge, art, deg: 184 })))).toBeGreaterThan(0.8);
+    expect(sameFace(recto, sig(photo(w, h, bg)))).toBeLessThan(0.4);
+  });
+  it("résolution de la carte sur la photo ; zone de carte au-delà des bords", () => {
+    const q = truth(480, 640);
+    expect(pxPerMm(q)).toBeCloseTo((640 * 0.8) / 88, 2);
+    cardRegion(q, 0, 0, 63, 88).forEach((p, i) => expect(near(p, q[i]!)).toBeLessThan(1e-6));
+    const corner = cardRegion(q, -3, -3, 12, 12);
+    expect(near(corner[0], q[0]) / pxPerMm(q)).toBeCloseTo(3 * Math.SQRT2, 3);
+  });
+});

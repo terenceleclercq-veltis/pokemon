@@ -1,5 +1,6 @@
-// Analyse d'image du scanner (sans DOM, testée) : repérage de la carte sur fond sombre, netteté, reflets, affinage des
-// bords à pleine résolution, redressement (homographie) et contrôle des gros plans (coin ou bord bien placé).
+// Analyse d'image du scanner (sans DOM, testée) : repérage de la carte sur un fond uni (sombre ou clair), netteté,
+// reflets, affinage des bords à pleine résolution, vrai bord retrouvé quand le contour passe dans la carte,
+// redressement (homographie), empreinte d'une face (retournement), bordures et centrage.
 
 export interface Pt {
   x: number;
@@ -210,6 +211,17 @@ function fitLine(pts: Pt[]): { c: Pt; d: Pt } | null {
   return { c, d: { x: Math.cos(a), y: Math.sin(a) } };
 }
 
+/** Droite ajustée en deux passes : sans les points à plus de 2 px (ou 1,5 × l'écart médian) ; null sous 8 points. */
+function robustLine(pts: Pt[]): { c: Pt; d: Pt } | null {
+  const line = fitLine(pts);
+  if (!line) return null;
+  const off = (p: Pt) => Math.abs((p.x - line.c.x) * line.d.y - (p.y - line.c.y) * line.d.x);
+  const devs = pts.map(off).sort((x, y) => x - y);
+  const tol = Math.max(2, 1.5 * (devs[Math.floor(devs.length / 2)] ?? 0));
+  const kept = pts.filter((p) => off(p) <= tol);
+  return kept.length >= 8 ? fitLine(kept) : null;
+}
+
 function intersect(a: { c: Pt; d: Pt }, b: { c: Pt; d: Pt }): Pt | null {
   const den = a.d.x * b.d.y - a.d.y * b.d.x;
   if (Math.abs(den) < 1e-9) return null;
@@ -254,15 +266,7 @@ export function refineQuad(g: Uint8Array, w: number, h: number, q: Quad): Quad {
       }
       if (bestG >= 12) pts.push({ x: p.x + n.x * bestS, y: p.y + n.y * bestS });
     }
-    // deux passes : ajustement, puis sans les points à plus de 2 px (ou 1,5 × l'écart médian) de la droite
-    let line = fitLine(pts);
-    if (!line) return null;
-    const off = (p: Pt, l: { c: Pt; d: Pt }) => Math.abs((p.x - l.c.x) * l.d.y - (p.y - l.c.y) * l.d.x);
-    const devs = pts.map((p) => off(p, line!)).sort((x, y) => x - y);
-    const tol = Math.max(2, 1.5 * (devs[Math.floor(devs.length / 2)] ?? 0));
-    const kept = pts.filter((p) => off(p, line!) <= tol);
-    line = kept.length >= 8 ? fitLine(kept) : null;
-    return line;
+    return robustLine(pts);
   });
   const out: Pt[] = [];
   for (let k = 0; k < 4; k++) {
@@ -354,81 +358,8 @@ export function warp(
   return out;
 }
 
-/** Gros plan : coin (hg, hd, bd, bg) ou bord (h, d, b, g) de la carte attendu au centre du cadre. */
+/** Partie de la carte d'un gros plan : coin (hg, hd, bd, bg) ou bord (h, d, b, g, anciens scans seulement). */
 export type Target = "hg" | "hd" | "bd" | "bg" | "h" | "d" | "b" | "g";
-
-/**
- * Le gros plan montre-t-il bien la partie demandée ? Le cadre est coupé en deux (bord) ou en quatre (coin) : la
- * partie « carte » doit se distinguer nettement de la partie « fond ». Renvoie l'écart de luminance carte - fond
- * (positif si la carte est bien là où on l'attend ; `bright` : carte plus claire que le fond, cas du fond sombre).
- */
-export function framing(g: Uint8Array, w: number, r: Rect, target: Target, bright = true): number {
-  const mean = (x0: number, y0: number, x1: number, y1: number) => {
-    let s = 0;
-    let n = 0;
-    for (let y = Math.floor(y0); y < y1; y += 2)
-      for (let x = Math.floor(x0); x < x1; x += 2) {
-        s += g[y * w + x] ?? 0;
-        n++;
-      }
-    return n ? s / n : 0;
-  };
-  const { x, y } = r;
-  const mx = r.x + r.w / 2;
-  const my = r.y + r.h / 2;
-  const X = r.x + r.w;
-  const Y = r.y + r.h;
-  // [zone carte, zone fond] pour chaque cible
-  const zones: Record<Target, [number[], number[]]> = {
-    hg: [
-      [mx, my, X, Y],
-      [x, y, mx, my],
-    ],
-    hd: [
-      [x, my, mx, Y],
-      [mx, y, X, my],
-    ],
-    bd: [
-      [x, y, mx, my],
-      [mx, my, X, Y],
-    ],
-    bg: [
-      [mx, y, X, my],
-      [x, my, mx, Y],
-    ],
-    h: [
-      [x, my, X, Y],
-      [x, y, X, my],
-    ],
-    b: [
-      [x, y, X, my],
-      [x, my, X, Y],
-    ],
-    g: [
-      [mx, y, X, Y],
-      [x, y, mx, Y],
-    ],
-    d: [
-      [x, y, mx, Y],
-      [mx, y, X, Y],
-    ],
-  };
-  const [card, bg] = zones[target];
-  const c = mean(card[0]!, card[1]!, card[2]!, card[3]!);
-  const b = mean(bg[0]!, bg[1]!, bg[2]!, bg[3]!);
-  return Math.max(0, bright ? c - b : b - c);
-}
-
-/** Écart moyen entre deux images en niveaux de gris de même taille (mouvement du téléphone). */
-export function motion(a: Uint8Array, b: Uint8Array): number {
-  let s = 0;
-  let n = 0;
-  for (let i = 0; i < a.length && i < b.length; i += 7) {
-    s += Math.abs((a[i] ?? 0) - (b[i] ?? 0));
-    n++;
-  }
-  return n ? s / n : 0;
-}
 
 // --- centrage ------------------------------------------------------------------------------------------------------
 
@@ -466,9 +397,11 @@ const CUT_COLOR = 50;
  * Coins où la carte est coupée sur une face redressée (`mm` pixels par millimètre). Bien détourée, la carte a ses
  * coins arrondis (rayon d'environ 3 mm) : chaque coin de l'image montre le fond. Si un coin a au contraire la
  * couleur de la carte à la même profondeur, 4 à 7 mm plus loin le long d'un des deux côtés, le bord a été mal
- * repéré : la carte déborde de l'image à cet endroit (bordure rognée, centrage faussé).
+ * repéré : la carte déborde de l'image à cet endroit (bordure rognée, centrage faussé). Avec la couleur du fond
+ * mesurée autour de la carte à la prise (`mat`), le coin est comparé au fond plutôt qu'à un seuil fixe : une bordure
+ * proche du fond (verso bleu foncé sur tapis noir) n'est plus prise pour un coin coupé.
  */
-export function cutCorners(rgba: Uint8ClampedArray, w: number, h: number, mm = 20): Corner[] {
+export function cutCorners(rgba: Uint8ClampedArray, w: number, h: number, mm = 20, mat?: number[] | null): Corner[] {
   // couleur médiane d'un rectangle repéré depuis le coin : u le long du côté horizontal, v du côté vertical (mm)
   const patch = (c: Corner, u0: number, u1: number, v0: number, v1: number) => {
     const ch: [number[], number[], number[]] = [[], [], []];
@@ -488,8 +421,38 @@ export function cutCorners(rgba: Uint8ClampedArray, w: number, h: number, mm = 2
   const gap = (a: number[], b: number[]) => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!);
   return (["hg", "hd", "bd", "bg"] as const).filter((c) => {
     const corner = patch(c, 0.1, 0.5, 0.1, 0.5);
-    return [patch(c, 4, 7, 0.2, 0.7), patch(c, 0.2, 0.7, 4, 7)].some((p) => gap(corner, p) < CUT_COLOR);
+    const strips = [patch(c, 4, 7, 0.2, 0.7), patch(c, 0.2, 0.7, 4, 7)];
+    // fond connu : coin plus proche du bord de carte que du fond (si fond et bord se distinguent)
+    if (mat) return strips.some((p) => gap(p, mat) >= 10 && gap(corner, p) < gap(corner, mat));
+    return strips.some((p) => gap(corner, p) < CUT_COLOR);
   });
+}
+
+/**
+ * Couleur du fond autour de la carte, sur la photo d'origine : médiane de points pris de 4 à 10 mm à l'extérieur de
+ * chaque côté (au-delà de l'ombre et d'une bordure ratée par la détection). null si la carte remplit la photo.
+ */
+export function matColor(rgba: Uint8ClampedArray, w: number, h: number, q: Quad): number[] | null {
+  const ppm = pxPerMm(q);
+  const center = { x: q.reduce((s, p) => s + p.x, 0) / 4, y: q.reduce((s, p) => s + p.y, 0) / 4 };
+  const ch: [number[], number[], number[]] = [[], [], []];
+  q.forEach((a, k) => {
+    const b = q[(k + 1) % 4] as Pt;
+    const len = dist(a, b) || 1;
+    let n = { x: -(b.y - a.y) / len, y: (b.x - a.x) / len };
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    if ((mid.x - center.x) * n.x + (mid.y - center.y) * n.y < 0) n = { x: -n.x, y: -n.y };
+    for (let i = 0; i < 10; i++)
+      for (let d = 4; d <= 10; d += 1.5) {
+        const t = 0.2 + (0.6 * i) / 9;
+        const x = Math.round(a.x + (b.x - a.x) * t + n.x * d * ppm);
+        const y = Math.round(a.y + (b.y - a.y) * t + n.y * d * ppm);
+        if (x < 0 || y < 0 || x >= w || y >= h) continue;
+        const j = (y * w + x) * 4;
+        for (let c = 0; c < 3; c++) ch[c as 0 | 1 | 2].push(rgba[j + c] ?? 0);
+      }
+  });
+  return ch[0].length >= 20 ? ch.map(median) : null;
 }
 
 /**
@@ -543,8 +506,9 @@ function side(rgba: Uint8ClampedArray, w: number, h: number, s: Side, mm: number
 /**
  * Bordures d'une face redressée (`mm` pixels par millimètre, 20 pour le scanner) : centrage gauche/droite et
  * haut/bas, comme PSA le juge (« 55/45 »). null si aucune bordure n'est reconnaissable (photo inexploitable).
+ * `mat` : couleur du fond mesurée à la prise, pour reconnaître les coins coupés (voir `cutCorners`).
  */
-export function borders(rgba: Uint8ClampedArray, w: number, h: number, mm = 20): Borders | null {
+export function borders(rgba: Uint8ClampedArray, w: number, h: number, mm = 20, mat?: number[] | null): Borders | null {
   const m: Record<Side, ReturnType<typeof side>> = {
     gauche: side(rgba, w, h, "gauche", mm),
     droite: side(rgba, w, h, "droite", mm),
@@ -556,7 +520,7 @@ export function borders(rgba: Uint8ClampedArray, w: number, h: number, mm = 20):
   const v = (s: Side) => Math.round((m[s].px / mm) * 100) / 100;
   const pct = (a: number, b: number) => Math.round((1000 * Math.max(a, b)) / (a + b)) / 10;
   const [g, d, ht, b] = [v("gauche"), v("droite"), v("haut"), v("bas")];
-  const coupe = cutCorners(rgba, w, h, mm);
+  const coupe = cutCorners(rgba, w, h, mm, mat);
   return {
     gauche: g,
     droite: d,
@@ -567,4 +531,123 @@ export function borders(rgba: Uint8ClampedArray, w: number, h: number, mm = 20):
     sure: !coupe.length && all.every((r) => r.share >= 0.7 && r.spread <= 0.5 * mm),
     coupe,
   };
+}
+
+// --- scanner : résolution, retournement, bord réel, zones de la carte ----------------------------------------------
+
+/** Résolution de la carte sur la photo, en pixels par mm (côtés moyens rapportés à 63 × 88 mm). */
+export function pxPerMm(q: Quad): number {
+  const s = quadShape(q);
+  return (s.width / 63 + s.height / 88) / 2;
+}
+
+/**
+ * Quadrilatère de la photo qui couvre la zone [u0, u1] × [v0, v1] de la carte (mm depuis son coin haut gauche),
+ * au-delà de la carte comprise : gros plan d'un coin avec un peu de fond autour, comme vu de près.
+ */
+export function cardRegion(q: Quad, u0: number, v0: number, u1: number, v1: number): Quad {
+  const H = homography(
+    [
+      { x: 0, y: 0 },
+      { x: 63, y: 0 },
+      { x: 63, y: 88 },
+      { x: 0, y: 88 },
+    ],
+    q,
+  );
+  const at = (u: number, v: number) => project(H, { x: u, y: v });
+  return [at(u0, v0), at(u1, v0), at(u1, v1), at(u0, v1)];
+}
+
+const SIG_W = 18;
+const SIG_H = 25;
+
+/**
+ * Empreinte d'une face : la carte redressée en 18 × 25 niveaux de gris (moyennes de blocs 4 × 4), centrée et réduite
+ * (indépendante de l'exposition). Sert à voir que la carte a été retournée.
+ */
+export function signature(rgba: Uint8ClampedArray, w: number, h: number, q: Quad): Float32Array {
+  const g = gray(warp(rgba, w, h, q, SIG_W * 4, SIG_H * 4), SIG_W * 4, SIG_H * 4);
+  const out = new Float32Array(SIG_W * SIG_H);
+  for (let y = 0; y < SIG_H * 4; y++)
+    for (let x = 0; x < SIG_W * 4; x++) out[(y >> 2) * SIG_W + (x >> 2)]! += (g[y * SIG_W * 4 + x] ?? 0) / 16;
+  const mean = out.reduce((a, b) => a + b, 0) / out.length;
+  const sd = Math.sqrt(out.reduce((a, b) => a + (b - mean) ** 2, 0) / out.length) || 1;
+  return out.map((v) => (v - mean) / sd);
+}
+
+/** Ressemblance de deux empreintes (corrélation, de -1 à 1) ; la carte peut avoir fait un demi-tour sur la table. */
+export function sameFace(a: Float32Array, b: Float32Array): number {
+  const n = Math.min(a.length, b.length);
+  let straight = 0;
+  let turned = 0;
+  for (let i = 0; i < n; i++) {
+    straight += a[i]! * b[i]!;
+    turned += a[i]! * b[n - 1 - i]!;
+  }
+  return n ? Math.max(straight, turned) / n : 0;
+}
+
+/**
+ * Bord réel d'une carte coupée sur la photo (contour passé à l'intérieur : bordure foncée confondue avec un fond
+ * sombre, ligne de texte prise pour le bord). Chaque côté est repoussé jusqu'au dernier net changement de couleur
+ * dans les 5 mm vers l'extérieur, puis les coins redeviennent les intersections des droites. Un côté sans bord net
+ * plus loin reste en place ; à n'adopter que si les coins de l'image montrent ensuite le fond (`cutCorners`).
+ */
+export function growQuad(rgba: Uint8ClampedArray, w: number, h: number, q: Quad): Quad {
+  const ppm = pxPerMm(q);
+  const reach = Math.round(5 * ppm);
+  const skip = Math.max(3, Math.round(0.3 * ppm));
+  const center = { x: q.reduce((s, p) => s + p.x, 0) / 4, y: q.reduce((s, p) => s + p.y, 0) / 4 };
+  const at = (x: number, y: number) => {
+    const i = (Math.min(h - 1, Math.max(0, Math.round(y))) * w + Math.min(w - 1, Math.max(0, Math.round(x)))) * 4;
+    return [rgba[i] ?? 0, rgba[i + 1] ?? 0, rgba[i + 2] ?? 0];
+  };
+  const lines = q.map((a, k) => {
+    const b = q[(k + 1) % 4] as Pt;
+    const len = dist(a, b) || 1;
+    const e = { x: (b.x - a.x) / len, y: (b.y - a.y) / len };
+    let n = { x: -e.y, y: e.x };
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    if ((mid.x - center.x) * n.x + (mid.y - center.y) * n.y < 0) n = { x: -n.x, y: -n.y }; // vers l'extérieur
+    const pts: Pt[] = [];
+    for (let i = 0; i < 24; i++) {
+      const t = 0.15 + (0.7 * i) / 23;
+      const p = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+      // profil de couleur vers l'extérieur, moyenné sur 3 points le long du bord (grain, compression)
+      const prof: number[][] = [];
+      for (let s = 0; s <= reach; s++) {
+        const c = [0, 0, 0];
+        for (const o of [-1, 0, 1]) {
+          const v = at(p.x + n.x * s + e.x * o * 2, p.y + n.y * s + e.y * o * 2);
+          for (let k2 = 0; k2 < 3; k2++) c[k2]! += v[k2]! / 3;
+        }
+        prof.push(c);
+      }
+      const step = (s: number) => {
+        const u = prof[s + 2]!;
+        const v = prof[s - 2]!;
+        return Math.hypot(u[0]! - v[0]!, u[1]! - v[1]!, u[2]! - v[2]!);
+      };
+      let best = 0;
+      for (let s = skip; s <= reach - 2; s++) best = Math.max(best, step(s));
+      if (best < 15) continue;
+      // dernier changement net vers l'extérieur : centre (pondéré) de la plage où la variation dépasse le seuil
+      const limit = Math.max(15, 0.25 * best);
+      let end = reach - 2;
+      while (end >= skip && step(end) < limit) end--;
+      let [sum, weight] = [0, 0];
+      for (let s = end; s >= skip && step(s) >= limit; s--) [sum, weight] = [sum + s * step(s), weight + step(s)];
+      const at0 = sum / weight;
+      pts.push({ x: p.x + n.x * at0, y: p.y + n.y * at0 });
+    }
+    return robustLine(pts) ?? { c: mid, d: e };
+  });
+  const out: Pt[] = [];
+  for (let k = 0; k < 4; k++) {
+    const p = intersect(lines[(k + 3) % 4]!, lines[k]!);
+    if (!p || dist(p, q[k] as Pt) > reach * 1.5) return q;
+    out.push(p);
+  }
+  return out as Quad;
 }
