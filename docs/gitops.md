@@ -55,7 +55,12 @@ dans une livraison suivante. Jamais de `DROP` ou de renommage dans la même livr
    Session de **1 mois** (`730h`) et redirection automatique vers l'unique fournisseur d'identité (choix de
    Terence, 01/11/2026 : moins de reconnexions sur téléphone).
 4. Aucun secret applicatif : l'ancien `ENC_KEY` (liaison API Cardmarket, retirée) a été supprimé des Workers le 30/10/2026.
-5. Jeton API CI limité au compte pokemon : *Workers Scripts: Edit*, *D1: Edit*, *Account Settings: Read*.
+5. Jeton API CI limité au compte pokemon : *Workers Scripts: Edit*, *D1: Edit*, *Account Settings: Read*
+   (et *Workers R2 Storage: Edit* si le déploiement le réclame pour le binding des photos).
+6. Photos du scanner : R2 activé sur le compte (tableau de bord, R2 Object Storage, offre gratuite de 10 Go), puis
+   compartiments `pokedex-photos-staging` et `pokedex-photos` (`npx wrangler r2 bucket create …`), privés (pas
+   d'accès public ni de domaine) : le Worker sert les photos lui-même, derrière Access. En local et en test, le
+   compartiment `pokedex-photos-dev` est simulé par wrangler.
 
 **Promos au style IR** : pour les espèces sans IR ni SIR en français, des promos Black Star au style « Illustration
 Rare » sont ajoutées à la main (catégorie `PROMO_IR`, comptée comme IR) après vérification visuelle ; TCGdex les classe

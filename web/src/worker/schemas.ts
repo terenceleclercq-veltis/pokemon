@@ -58,6 +58,40 @@ export const budgetBody = z.strictObject({
 });
 /** Vitrine : jusqu'à 5 de tes cartes exposées dans les protections aimantées, dans l'ordre d'ajout. */
 export const vitrineBody = z.strictObject({ cards: z.array(cardId).check(z.maxLength(5)) });
+/** Scanner : vue entière (recto, verso) ou gros plan d'un coin (hg, hd, bd, bg) ou d'un bord (h, d, b, g). */
+export const scanStep = z.string().check(z.regex(/^(recto|verso)(-(hg|hd|bd|bg|h|d|b|g))?$/));
+const uuid = z.string().check(z.regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/));
+export const scanParam = z.object({ id: uuid });
+export const photoParam = z.object({ id: uuid, step: scanStep });
+const px = z.coerce.number().check(z.int(), z.gt(0), z.lte(12_000));
+const coord = z.number().check(z.gte(-1), z.lte(12_001));
+/** Description d'une photo envoyée (corps : l'image elle-même, en JPEG ou WebP). */
+export const photoQuery = z.object({
+  w: px,
+  h: px,
+  sharp: z.optional(z.coerce.number().check(z.gte(0), z.lte(1e7))),
+  quad: z.optional(
+    z.pipe(
+      z.pipe(
+        z.string().check(z.maxLength(400)),
+        z.transform((v, ctx) => {
+          try {
+            return JSON.parse(v) as unknown;
+          } catch {
+            ctx.issues.push({ code: "custom", message: "JSON invalide", input: v });
+            return z.NEVER;
+          }
+        }),
+      ),
+      z.tuple([
+        z.object({ x: coord, y: coord }),
+        z.object({ x: coord, y: coord }),
+        z.object({ x: coord, y: coord }),
+        z.object({ x: coord, y: coord }),
+      ]),
+    ),
+  ),
+});
 export const purchasePatch = z.strictObject({ state: z.enum(["recue", "annulee"]), price_paid: paid });
 const wantTier = z._default(z.enum([...TIERS, "cheapest", "sir_ir", "objectif"]), "objectif");
 export const wantsQuery = z.object({ tier: wantTier });

@@ -60,10 +60,104 @@ describe("authentification et en-têtes", () => {
       expect(r.headers.get("X-Content-Type-Options")).toBe("nosniff");
       expect(r.headers.get("X-Frame-Options")).toBe("DENY");
       expect(r.headers.get("Referrer-Policy")).toBe("no-referrer");
+      // scanner : caméra autorisée pour le site seulement, aperçus locaux (blob:) des photos
+      expect(r.headers.get("Permissions-Policy")).toContain("camera=(self)");
+      expect(csp).toMatch(/img-src [^;]*blob:/);
     }
   });
   it("API jamais en cache", async () =>
     expect((await call("/api/pokedex")).headers.get("Cache-Control")).toBe("no-store"));
+});
+
+describe("scanner : scans et photos", () => {
+  /** Faux JPEG (signature FF D8 FF) de la taille voulue. */
+  const jpeg = (size = 1000) => {
+    const b = new Uint8Array(size);
+    b.set([0xff, 0xd8, 0xff, 0xe0]);
+    return b;
+  };
+  const scan = async () => (await (await call("/api/species/1/scans", { method: "POST" })).json<{ id: string }>()).id;
+  const put = (id: string, step: string, body: BodyInit, type = "image/jpeg", query = "w=1260&h=1760") =>
+    call(`/api/scans/${id}/photos/${step}?${query}`, { method: "PUT", body, headers: { "Content-Type": type } });
+  type List = { scans: { id: string; card_id: string; photos: { id: string; step: string; width: number }[] }[] };
+  const list = async () => (await (await call("/api/species/1/scans")).json<List>()).scans;
+
+  it("seulement une carte que tu as ; photos envoyées, listées, servies en cache privé", async () => {
+    expect((await call("/api/species/1/scans", { method: "POST" })).status).toBe(409);
+    await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } });
+    const id = await scan();
+    const quad = encodeURIComponent(
+      JSON.stringify([
+        { x: 10, y: 12 },
+        { x: 900, y: 15 },
+        { x: 905, y: 1250 },
+        { x: 8, y: 1245 },
+      ]),
+    );
+    const r = await put(id, "recto", jpeg(300 * 1024), "image/jpeg", `w=1260&h=1760&sharp=812.5&quad=${quad}`);
+    expect(r.status).toBe(201); // au-delà des 256 Ko des autres requêtes
+    const { id: pid } = await r.json<{ id: string }>();
+    expect((await put(id, "recto-hg", jpeg(), "image/jpeg", "w=900&h=900")).status).toBe(201);
+    const scans = await list();
+    expect(scans).toHaveLength(1);
+    expect(scans[0]).toMatchObject({ id, card_id: "sv03.5-166" });
+    expect(scans[0]?.photos.map((p) => p.step)).toEqual(["recto", "recto-hg"]);
+    const row = await env.DB.prepare("SELECT quad, sharpness, bytes FROM photo WHERE id = ?").bind(pid).first();
+    expect(row).toMatchObject({ sharpness: 812.5, bytes: 300 * 1024 });
+    expect((JSON.parse(String(row?.quad)) as unknown[])[2]).toEqual({ x: 905, y: 1250 });
+    const img = await call(`/api/photos/${pid}`);
+    expect(img.status).toBe(200);
+    expect(img.headers.get("Content-Type")).toBe("image/jpeg");
+    expect(img.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable");
+    expect((await img.arrayBuffer()).byteLength).toBe(300 * 1024);
+    const again = await call(`/api/photos/${pid}`, { headers: { "If-None-Match": img.headers.get("ETag") ?? "" } });
+    expect(again.status).toBe(304);
+    // miniature : la photo elle-même tant qu'elle n'est pas envoyée, puis la miniature
+    expect((await (await call(`/api/photos/${pid}/thumb`)).arrayBuffer()).byteLength).toBe(300 * 1024);
+    const thumb = (body: BodyInit, id = pid) =>
+      call(`/api/photos/${id}/thumb`, { method: "PUT", body, headers: { "Content-Type": "image/jpeg" } });
+    expect((await thumb(jpeg(4000))).status).toBe(200);
+    expect((await (await call(`/api/photos/${pid}/thumb`)).arrayBuffer()).byteLength).toBe(4000);
+    expect((await thumb(new Uint8Array([1, 2, 3]))).status).toBe(400);
+    expect((await thumb(jpeg(), crypto.randomUUID())).status).toBe(404);
+  });
+  it("une photo reprise remplace la précédente (objet R2 supprimé)", async () => {
+    await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } });
+    const id = await scan();
+    const first = await (await put(id, "verso", jpeg())).json<{ id: string }>();
+    const second = await (await put(id, "verso", jpeg(2000))).json<{ id: string }>();
+    expect((await list())[0]?.photos.map((p) => p.id)).toEqual([second.id]);
+    expect(await env.PHOTOS.get(`photos/${first.id}`)).toBeNull();
+    expect((await call(`/api/photos/${first.id}`)).status).toBe(404);
+  });
+  it("refus : faux JPEG, type annoncé faux, étape ou dimensions invalides, scan inconnu, trop gros", async () => {
+    await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } });
+    const id = await scan();
+    expect((await put(id, "recto", new Uint8Array([1, 2, 3, 4]))).status).toBe(400);
+    expect((await put(id, "recto", jpeg(), "image/webp")).status).toBe(400);
+    expect((await put(id, "recto-xx", jpeg())).status).toBe(400);
+    expect((await put(id, "recto", jpeg(), "image/jpeg", "w=0&h=10")).status).toBe(400);
+    expect((await put(id, "recto", jpeg(), "image/jpeg", "w=10&h=10&quad=%5B1%2C2%5D")).status).toBe(400);
+    expect((await put(crypto.randomUUID(), "recto", jpeg())).status).toBe(404);
+    expect((await put(id, "recto", jpeg(8 * 1024 * 1024 + 1))).status).toBe(413);
+    // WebP accepté (signature RIFF … WEBP)
+    const webp = new Uint8Array(64);
+    webp.set(new TextEncoder().encode("RIFF"), 0);
+    webp.set(new TextEncoder().encode("WEBP"), 8);
+    expect((await put(id, "recto", webp, "image/webp")).status).toBe(201);
+    expect((await call("/api/photos/pas-un-uuid")).status).toBe(400);
+  });
+  it("suppression d'un scan : lignes et objets R2 retirés", async () => {
+    await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } });
+    const id = await scan();
+    const { id: pid } = await (await put(id, "recto", jpeg())).json<{ id: string }>();
+    await call(`/api/photos/${pid}/thumb`, { method: "PUT", body: jpeg(), headers: { "Content-Type": "image/jpeg" } });
+    expect((await call(`/api/scans/${id}`, { method: "DELETE" })).status).toBe(200);
+    expect(await list()).toEqual([]);
+    expect(await env.PHOTOS.get(`photos/${pid}`)).toBeNull();
+    expect(await env.PHOTOS.get(`thumbs/${pid}`)).toBeNull();
+    expect((await call(`/api/scans/${id}`, { method: "DELETE" })).status).toBe(404);
+  });
 });
 
 describe("limite de débit", () => {
