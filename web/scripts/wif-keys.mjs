@@ -3,7 +3,8 @@
 // Génère une paire de clés ES256 (P-256). La clé privée part directement dans le secret Worker WIF_PRIVATE_JWK de
 // l'environnement (wrangler secret put, par l'entrée standard) : elle n'est jamais affichée, journalisée ni écrite sur
 // disque. Seule la clé publique est affichée, à coller dans le JWKS « inline » de l'émetteur, dans la console Claude.
-// Rotation : relancer, ajouter la nouvelle clé publique au JWKS, puis retirer l'ancienne une fois le déploiement fait.
+// Rotation : relancer, ajouter la nouvelle clé publique au JWKS (son kid est unique), puis retirer l'ancienne. Une seule
+// exécution à la fois par environnement : la dernière écrit le secret, même si elle a été annulée en cours de route.
 import { spawn } from "node:child_process";
 import { webcrypto } from "node:crypto";
 
@@ -14,7 +15,10 @@ if (env !== "staging" && env !== "production") {
 }
 
 const pair = await webcrypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
-const kid = `pokedex-kanto-${env}-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}`;
+// identifiant unique à chaque génération (date, heure, suffixe aléatoire) : en rotation, la nouvelle clé publique
+// s'ajoute à côté de l'ancienne dans le JWKS, sans ambiguïté, puis l'ancienne est retirée
+const stamp = new Date().toISOString().replace(/[-:]/g, "").slice(0, 15);
+const kid = `pokedex-kanto-${env}-${stamp}-${webcrypto.randomUUID().slice(0, 6)}`;
 const priv = await webcrypto.subtle.exportKey("jwk", pair.privateKey);
 const pub = await webcrypto.subtle.exportKey("jwk", pair.publicKey);
 

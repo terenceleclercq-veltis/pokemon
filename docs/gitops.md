@@ -72,7 +72,10 @@ dans une livraison suivante. Jamais de `DROP` ou de renommage dans la même livr
    d'accès de 10 minutes, lié à un compte de service.
    1. Clés : lancer `wif-keys.yml` (Actions, « Run workflow ») pour `staging` puis `production`. La clé privée part
       dans le secret Worker `WIF_PRIVATE_JWK` sans être affichée ; la clé publique est dans le résumé du job.
-      Rotation : relancer, ajouter la nouvelle clé publique au JWKS de l'émetteur, puis retirer l'ancienne.
+      Rotation : relancer, ajouter la nouvelle clé publique au JWKS de l'émetteur (chaque clé a un `kid` unique),
+      puis retirer l'ancienne. Une seule exécution à la fois par environnement : une exécution annulée peut avoir déjà
+      écrit le secret (cas du 03/11/2026 : clé de staging remplacée, `jwt_signature_invalid` jusqu'à la mise à jour du
+      JWKS).
    2. Console Claude (`platform.claude.com`, rôle admin) : des crédits (Billing) ; un espace de travail `pokedex` avec
       un plafond de dépenses mensuel.
    3. *Settings* → *Workload identity* → *Connect workload* → *Custom OIDC* : URL de l'émetteur ci-dessus, JWKS
