@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetJwksCache } from "../../src/worker/auth";
 import { scheduledRefresh } from "../../src/worker/cron";
 import { applyPriceGuide, FEED_URL } from "../../src/worker/feed";
-import { call, jwks, mockOutbound, ORIGIN, TEAM } from "../helpers";
+import { anthropicApi, call, jwks, mockOutbound, ORIGIN, PERFECT, TEAM } from "../helpers";
 
 interface SpeciesDto {
   num: number;
@@ -157,6 +157,186 @@ describe("scanner : scans et photos", () => {
     expect(await env.PHOTOS.get(`photos/${pid}`)).toBeNull();
     expect(await env.PHOTOS.get(`thumbs/${pid}`)).toBeNull();
     expect((await call(`/api/scans/${id}`, { method: "DELETE" })).status).toBe(404);
+  });
+});
+
+describe("pré-évaluation PSA par Claude", () => {
+  const jpeg = () => new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
+  const STEPS = [
+    "recto",
+    "verso",
+    ...["recto", "verso"].flatMap((f) => ["hg", "hd", "bd", "bg"].map((c) => `${f}-${c}`)),
+  ];
+  const face = (lr: number, tb: number) => ({ gauche: 3, droite: 3.2, haut: 3, bas: 3, lr, tb, sure: true });
+  const centrage = { recto: face(51.6, 50), verso: face(53, 52) };
+  /** Scan d'une carte possédée, avec les photos demandées (toutes les étapes requises par défaut). */
+  async function scanWith(steps = STEPS) {
+    await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } });
+    const { id } = await (await call("/api/species/1/scans", { method: "POST" })).json<{ id: string }>();
+    for (const step of steps)
+      await call(`/api/scans/${id}/photos/${step}?w=1260&h=1760`, {
+        method: "PUT",
+        body: jpeg(),
+        headers: { "Content-Type": "image/jpeg" },
+      });
+    return id;
+  }
+  const analyse = (id: string, json: unknown = { centrage }) =>
+    call(`/api/scans/${id}/analyses`, { method: "POST", json });
+  const lines = async (r: Response) =>
+    (await r.text())
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+  const decode = (jwt: string) =>
+    JSON.parse(atob(jwt.split(".")[1]!.replace(/-/g, "+").replace(/_/g, "/"))) as Record<string, unknown>;
+
+  it("analyse en flux : jeton fédéré, photos via l'API Files puis supprimées, verdict, coût, historique", async () => {
+    const api = anthropicApi();
+    mockOutbound({}, api.handler);
+    const id = await scanWith();
+    const r = await analyse(id);
+    expect(r.status).toBe(200);
+    expect(r.headers.get("Content-Type")).toBe("application/x-ndjson; charset=utf-8");
+    expect(r.headers.get("Cache-Control")).toBe("no-store");
+    const out = await lines(r);
+    expect(out.slice(0, 2)).toEqual([
+      { etape: "envoi", photos: 10 },
+      { etape: "analyse", photos: 10 },
+    ]);
+    const result = out.at(-1)?.analyse as Record<string, unknown>;
+    expect(result).toMatchObject({
+      state: "terminee",
+      model: "claude-opus-5-5",
+      verdict: "candidat_10",
+      plafond: 10,
+      raisons: { limites: [], incertains: [] },
+      cout_usd: 0.2,
+      constats: PERFECT,
+      centrage,
+      note_psa: null,
+    });
+    // échange de jeton : assertion signée par le Worker, identifiants de la console
+    const exchange = api.calls.find((c) => c.path === "/v1/oauth/token")!;
+    const body = exchange.body as Record<string, string>;
+    expect(body).toMatchObject({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      federation_rule_id: "fdrl_test",
+      organization_id: "00000000-0000-4000-8000-000000000001",
+      service_account_id: "svac_test",
+      workspace_id: "wrkspc_test",
+    });
+    expect(decode(body.assertion!)).toMatchObject({ sub: "pokedex-kanto:test", aud: "https://api.anthropic.com" });
+    // photos : 10 envois (expiration 1 h), 10 suppressions ; message authentifié par le jeton fédéré
+    const uploads = api.calls.filter((c) => c.path === "/v1/files" && c.method === "POST");
+    expect(uploads.map((c) => (c.body as { name: string }).name)).toEqual(STEPS.map((st) => `${st}.jpg`));
+    expect(uploads[0]?.body).toMatchObject({ type: "image/jpeg", expires: "3600" });
+    expect(api.calls.filter((c) => c.method === "DELETE")).toHaveLength(10);
+    const msg = api.calls.find((c) => c.path === "/v1/messages")!;
+    expect(msg.headers.get("Authorization")).toBe("Bearer sk-ant-oat01-test");
+    const sent = msg.body as { model: string; messages: { content: { type: string }[] }[] };
+    expect(sent.model).toBe("claude-opus-5-5");
+    expect(sent.messages[0]?.content.filter((b) => b.type === "image")).toHaveLength(10);
+    // historique : l'analyse est rendue avec le scan, avec l'état du quota du jour
+    const list = await (
+      await call("/api/species/1/scans")
+    ).json<{ scans: { analyses: { id: string; verdict: string }[] }[]; claude: unknown }>();
+    expect(list.scans[0]?.analyses.map((a) => a.verdict)).toEqual(["candidat_10"]);
+    expect(list.claude).toEqual({ configured: true, model: "claude-opus-5-5", par_jour: 3, restantes: 2 });
+    const row = await env.DB.prepare("SELECT input_tokens, output_tokens FROM analyse").first();
+    expect(row).toEqual({ input_tokens: 30_000, output_tokens: 4_000 });
+  });
+
+  it("refus avant tout appel : non configurée, scan incomplet ou inconnu, corps invalide, quota, déjà en cours", async () => {
+    const api = anthropicApi();
+    mockOutbound({}, api.handler);
+    const partial = await scanWith(["recto", "verso", "recto-hg"]);
+    const missing = await analyse(partial);
+    expect(missing.status).toBe(409);
+    expect(await missing.json()).toEqual({
+      error: "scan incomplet : il manque recto-hd, recto-bd, recto-bg, verso-hg, verso-hd, verso-bd, verso-bg",
+    });
+    const id = await scanWith();
+    const off = await call(`/api/scans/${id}/analyses`, {
+      method: "POST",
+      json: { centrage },
+      vars: { CLAUDE_FEDERATION_RULE_ID: "" },
+    });
+    expect(off.status).toBe(409);
+    expect((await analyse(crypto.randomUUID())).status).toBe(404);
+    expect((await analyse(id, {})).status).toBe(400);
+    expect((await analyse(id, { centrage: { recto: { ...face(51, 50), lr: 40 }, verso: null } })).status).toBe(400);
+    // une analyse récente en cours bloque ; une analyse « en cours » de plus de 10 min est interrompue
+    const insert = (state: string, at: Date) =>
+      env.DB.prepare("INSERT INTO analyse (id, scan_id, created_at, state, model) VALUES (?, ?, ?, ?, 'm')")
+        .bind(crypto.randomUUID(), id, at.toISOString(), state)
+        .run();
+    await insert("en_cours", new Date());
+    expect((await analyse(id)).status).toBe(409);
+    await env.DB.prepare("UPDATE analyse SET created_at = ?")
+      .bind(new Date(Date.now() - 11 * 60_000).toISOString())
+      .run();
+    const list = await (
+      await call("/api/species/1/scans")
+    ).json<{ scans: { id: string; analyses: { state: string }[] }[] }>();
+    expect(list.scans.find((x) => x.id === id)?.analyses[0]?.state).toBe("interrompue");
+    // quota du jour (3 en test) : les analyses d'aujourd'hui comptent, même en échec
+    await insert("echec", new Date());
+    await insert("terminee", new Date());
+    await insert("terminee", new Date());
+    const quota = await analyse(id);
+    expect(quota.status).toBe(429);
+    expect(await quota.json()).toEqual({ error: "limite de 3 analyses par jour atteinte : réessaie demain" });
+    expect(api.calls).toEqual([]);
+  });
+
+  it("Claude en erreur : message en flux, analyse marquée en échec, fichiers supprimés", async () => {
+    const api = anthropicApi({ messages: 400 });
+    mockOutbound({}, api.handler);
+    const id = await scanWith();
+    const out = await lines(await analyse(id));
+    expect(out.at(-1)).toEqual({ erreur: "Claude a répondu 400" });
+    expect(await env.DB.prepare("SELECT state, erreur FROM analyse").first()).toEqual({
+      state: "echec",
+      erreur: "Claude a répondu 400",
+    });
+    expect(api.calls.filter((c) => c.method === "DELETE")).toHaveLength(10);
+  });
+
+  it("note PSA obtenue : demi-points, effaçable ; refus sur une analyse inconnue", async () => {
+    mockOutbound({}, anthropicApi().handler);
+    const id = await scanWith();
+    const done = (await lines(await analyse(id))).at(-1)?.analyse as { id: string };
+    const psa = (note: unknown, aid = done.id) => call(`/api/analyses/${aid}/psa`, { method: "PUT", json: { note } });
+    expect((await psa(9.5)).status).toBe(200);
+    expect(await env.DB.prepare("SELECT note_psa FROM analyse").first()).toEqual({ note_psa: 9.5 });
+    expect((await psa(9.3)).status).toBe(400);
+    expect((await psa(11)).status).toBe(400);
+    expect((await psa(null)).status).toBe(200);
+    expect((await psa(10, crypto.randomUUID())).status).toBe(404);
+    // suppression du scan : ses analyses partent avec lui
+    await call(`/api/scans/${id}`, { method: "DELETE" });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM analyse").first()).toEqual({ n: 0 });
+  });
+
+  it("vérification de la fédération : échange réel (gratuit), refus lisible ; rien sans configuration", async () => {
+    mockOutbound({}, anthropicApi().handler);
+    const ok = await (await call("/api/claude?verifier=1")).json<{ federation: unknown }>();
+    expect(ok.federation).toEqual({ ok: true });
+    mockOutbound({}, anthropicApi({ exchange: 401 }).handler);
+    const ko = await (await call("/api/claude?verifier=1")).json<{ federation: { ok: boolean; error: string } }>();
+    expect(ko.federation.ok).toBe(false);
+    expect(ko.federation.error).toContain("Token exchange failed with status 401");
+    const off = await (
+      await call("/api/claude?verifier=1", { vars: { CLAUDE_ORG_ID: "" } })
+    ).json<{ configured: boolean; federation: unknown }>();
+    expect(off).toMatchObject({ configured: false, federation: null });
+    expect(await (await call("/api/claude")).json()).toEqual({
+      configured: true,
+      model: "claude-opus-5-5",
+      par_jour: 3,
+      restantes: 3,
+    });
   });
 });
 

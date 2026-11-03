@@ -22,6 +22,11 @@ Scanner guidé de tes cartes (fiche d'une espèce au binder, « Scanner la carte
 cadrage, de la stabilité, de la netteté et des reflets, déclenchement automatique ; recto et verso redressés à plat
 (63 × 88 mm à 20 px/mm), gros plans des coins (et des bords au choix), repli sur l'appareil photo du téléphone ;
 photos privées stockées dans R2, vignettes et visionneuse dans la fiche.
+Pré-évaluation PSA d'un scan complet (recto, verso, 8 coins) par Claude Opus 5.5 : le site mesure lui-même le centrage
+sur les vues redressées, Claude relève l'état des coins, des bords et de la surface (format imposé, confiance par
+constat), et le verdict (« candidat PSA 10 », « probable 9 », « 8 ou moins », « photos insuffisantes ») découle de
+règles fixes ; coût affiché (~0,25 $), 10 analyses par jour au plus, note PSA réellement obtenue saisie pour mesurer
+la fiabilité. Indicatif : PSA examine la surface à la loupe.
 
 ## Pile technique et pourquoi
 
@@ -59,6 +64,10 @@ Le déploiement passe exclusivement par la CI : voir [`docs/gitops.md`](../docs/
   scanner : 8 Mo, type vérifié sur les premiers octets), SQL paramétré.
 - **Photos** : compartiment R2 privé, servies par le Worker derrière Access (cache privé) ; caméra autorisée pour le
   site seul (Permissions-Policy) ; les photos sont réencodées dans le navigateur, sans métadonnées (ni position GPS).
+- **Claude sans clé API** : fédération d'identité. Le Worker signe pour chaque échange un jeton ES256 de 5 minutes à
+  usage unique (secret `WIF_PRIVATE_JWK`, écrit par un workflow, jamais affiché) ; Anthropic rend un jeton d'accès de
+  10 minutes lié à un compte de service, dans un espace de travail plafonné. Photos envoyées par l'API Files (expiration
+  d'une heure) puis supprimées ; réponse de Claude revalidée (Zod) avant usage.
 - **Réponses externes** (TCGdex) validées avant usage ; délais d'expiration ; hôtes figés (anti-SSRF). Images
   affichées uniquement depuis `assets.tcgdex.net` et `raw.githubusercontent.com` (CSP), jamais copiées dans le dépôt.
 - **Limite de débit** : 120 requêtes/min par utilisateur (binding Workers Rate Limiting).

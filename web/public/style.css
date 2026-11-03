@@ -576,6 +576,95 @@ dialog.scanner button.link {
   height: 78px;
   object-fit: cover;
 }
+/* Pré-évaluation PSA par Claude, sous les photos du dernier scan */
+.analysis h4 {
+  margin: 12px 0 4px;
+  font-size: 0.95rem;
+}
+.an-run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+.an-run p {
+  margin: 0;
+  font-size: 0.85rem;
+}
+.an-result {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--bd);
+  border-left: 4px solid var(--none);
+  border-radius: 10px;
+  background: var(--card);
+}
+.an-result.v-candidat_10 {
+  border-left-color: var(--ok);
+}
+.an-result.v-probable_9 {
+  border-left-color: var(--chk);
+}
+.an-result.v-huit_ou_moins {
+  border-left-color: var(--miss);
+}
+.an-result p {
+  margin: 4px 0;
+}
+.an-verdict {
+  font-size: 1.05rem;
+}
+.an-list {
+  margin: 2px 0 6px;
+  padding-left: 18px;
+}
+.an-grid {
+  margin: 8px 0;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.an-grid caption {
+  text-align: left;
+  font-weight: 600;
+}
+.an-grid th,
+.an-grid td {
+  padding: 2px 8px 2px 0;
+  text-align: left;
+}
+.an-grid th[scope="col"] {
+  color: var(--mut);
+  font-weight: 500;
+}
+.sev {
+  font-weight: 600;
+}
+.sev-0 {
+  color: var(--ok);
+}
+.sev-1 {
+  color: var(--chk);
+}
+.sev-2,
+.sev-3 {
+  color: var(--miss);
+}
+.sev.doubt {
+  text-decoration: underline dotted;
+}
+.an-summary {
+  font-style: italic;
+}
+.an-foot {
+  color: var(--mut);
+  font-size: 0.85rem;
+}
+.an-foot select {
+  font-size: 1rem;
+}
+.an-note {
+  font-size: 0.8rem;
+}
 .pv-fig {
   grid-column: 2;
   margin: 0;

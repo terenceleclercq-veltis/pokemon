@@ -19,6 +19,14 @@
     "ACCESS_AUD": "",
     "ALLOWED_EMAIL": "",
     "CI_SERVICE_TOKEN_ID": "",
+    // Analyse par Claude (fédération d'identité, docs/gitops.md étape 7) : identifiants de la console Claude, pas
+    // des secrets ; la clé de signature est le secret WIF_PRIVATE_JWK. Vides = analyse désactivée.
+    "CLAUDE_MODEL": "claude-opus-5-5",
+    "CLAUDE_ORG_ID": "",
+    "CLAUDE_FEDERATION_RULE_ID": "",
+    "CLAUDE_SERVICE_ACCOUNT_ID": "",
+    "CLAUDE_WORKSPACE_ID": "",
+    "ANALYSES_PAR_JOUR": "10",
   },
   "d1_databases": [
     {
@@ -42,6 +50,12 @@
         "ACCESS_AUD": "9f3e565bf4ee9630b02345f64ed86d55ac8f9566084abfd539826e0cefc6a44c",
         "ALLOWED_EMAIL": "terence.leclercq@veltis.be",
         "CI_SERVICE_TOKEN_ID": "5dd7b0b8ae04e81785cd25e2e4df4835.access",
+        "CLAUDE_MODEL": "claude-opus-5-5",
+        "CLAUDE_ORG_ID": "",
+        "CLAUDE_FEDERATION_RULE_ID": "",
+        "CLAUDE_SERVICE_ACCOUNT_ID": "",
+        "CLAUDE_WORKSPACE_ID": "",
+        "ANALYSES_PAR_JOUR": "10",
       },
       "d1_databases": [
         {
@@ -64,6 +78,12 @@
         "ACCESS_AUD": "32b7e972e3ade97bff353e72ac68f74189a22f5953375d77913f959c8fa90bfd",
         "ALLOWED_EMAIL": "terence.leclercq@veltis.be",
         "CI_SERVICE_TOKEN_ID": "5dd7b0b8ae04e81785cd25e2e4df4835.access",
+        "CLAUDE_MODEL": "claude-opus-5-5",
+        "CLAUDE_ORG_ID": "",
+        "CLAUDE_FEDERATION_RULE_ID": "",
+        "CLAUDE_SERVICE_ACCOUNT_ID": "",
+        "CLAUDE_WORKSPACE_ID": "",
+        "ANALYSES_PAR_JOUR": "10",
       },
       "d1_databases": [
         {

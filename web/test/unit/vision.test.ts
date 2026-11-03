@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  borders,
   CARD_RATIO,
   detectCard,
   framing,
@@ -183,5 +184,62 @@ describe("scanner : redressement", () => {
       [31, 85],
     ])
       expect(flat[(y! * 63 + x!) * 4]).toBeGreaterThan(150);
+  });
+});
+
+/** Face redressée synthétique (`mm` px/mm) : bordure unie, liseré blanchi au bord, illustration texturée. */
+function face(
+  mm: number,
+  b: { g: number; d: number; h: number; b: number },
+  border: number[],
+  art: (x: number, y: number) => number[],
+) {
+  const [w, h] = [63 * mm, 88 * mm];
+  const rgba = new Uint8ClampedArray(w * h * 4);
+  let seed = 7;
+  const noise = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648 - 0.5) * 8;
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const inBorder = x < b.g * mm || x >= w - b.d * mm || y < b.h * mm || y >= h - b.b * mm;
+      const edge = x < 0.15 * mm || x >= w - 0.15 * mm || y < 0.15 * mm || y >= h - 0.15 * mm;
+      const c = edge ? [245, 245, 245] : inBorder ? border : art(x, y);
+      const i = (y * w + x) * 4;
+      for (let k = 0; k < 3; k++) rgba[i + k] = c[k]! + noise();
+      rgba[i + 3] = 255;
+    }
+  return { rgba, w, h };
+}
+
+describe("scanner : centrage", () => {
+  it("recto full art : bordures mesurées au dixième de mm, centrage 58/42 à gauche-droite", () => {
+    const mm = 10;
+    const { rgba, w, h } = face(mm, { g: 2.5, d: 3.5, h: 3, b: 3 }, [228, 196, 52], (x, y) =>
+      ((x >> 4) + (y >> 4)) % 2 ? [40, 120, 200] : [200, 60, 90],
+    );
+    const r = borders(rgba, w, h, mm)!;
+    expect(r).not.toBeNull();
+    expect(r.gauche).toBeCloseTo(2.5, 0);
+    expect(Math.abs(r.gauche - 2.5)).toBeLessThan(0.15);
+    expect(Math.abs(r.droite - 3.5)).toBeLessThan(0.15);
+    expect(Math.abs(r.haut - 3)).toBeLessThan(0.15);
+    expect(Math.abs(r.bas - 3)).toBeLessThan(0.15);
+    expect(r.lr).toBeGreaterThan(57);
+    expect(r.lr).toBeLessThan(59.5);
+    expect(r.tb).toBeLessThan(51.5);
+    expect(r.sure).toBe(true);
+  });
+  it("verso : bordure bleue, motif plus sombre ; image uniforme : pas de mesure", () => {
+    const mm = 10;
+    const { rgba, w, h } = face(mm, { g: 5, d: 5, h: 4.2, b: 5.8 }, [45, 95, 205], (x, y) =>
+      Math.sin(x / 9) * Math.cos(y / 11) > 0 ? [20, 50, 140] : [30, 70, 165],
+    );
+    const r = borders(rgba, w, h, mm)!;
+    expect(Math.abs(r.gauche - 5)).toBeLessThan(0.15);
+    expect(Math.abs(r.haut - 4.2)).toBeLessThan(0.15);
+    expect(r.tb).toBeGreaterThan(57);
+    expect(r.tb).toBeLessThan(59);
+    expect(r.lr).toBeLessThan(51);
+    const flat = face(mm, { g: 3, d: 3, h: 3, b: 3 }, [200, 200, 200], () => [200, 200, 200]);
+    expect(borders(flat.rgba, flat.w, flat.h, mm)).toBeNull();
   });
 });
