@@ -121,8 +121,11 @@ const authenticate: MiddlewareHandler<AppEnv> = async (c, next) => {
         serviceTokenId: c.env.CI_SERVICE_TOKEN_ID,
       });
   if (!user) return c.text("Accès refusé", 401);
-  // le service token CI ne peut que lire l'état de santé
-  if (user.startsWith("service:") && !(c.req.method === "GET" && url.pathname === "/api/health"))
+  // le service token CI ne peut que lire l'état de santé et celui de la fédération Claude (vérifiée après déploiement)
+  if (
+    user.startsWith("service:") &&
+    !(c.req.method === "GET" && (url.pathname === "/api/health" || url.pathname === "/api/claude"))
+  )
     return c.text("Accès refusé", 403);
   c.set("user", user);
   await next();

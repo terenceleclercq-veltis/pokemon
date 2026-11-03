@@ -83,9 +83,13 @@ dans une livraison suivante. Jamais de `DROP` ou de renommage dans la même livr
       `wrangler.jsonc` (`CLAUDE_ORG_ID`, `CLAUDE_FEDERATION_RULE_ID`, `CLAUDE_SERVICE_ACCOUNT_ID`,
       `CLAUDE_WORKSPACE_ID`) : ce ne sont pas des secrets, ils ne servent à rien sans un jeton signé par le Worker.
       Vides, l'analyse reste désactivée. `CLAUDE_MODEL` (`claude-opus-5-5`) et `ANALYSES_PAR_JOUR` (10) y sont aussi.
-   5. Vérification sans frais : ouvrir `https://pokedex-kanto-<env>.pokedex-terence.workers.dev/api/claude?verifier=1`
-      (un échange de jeton, aucun appel au modèle). Un refus est détaillé dans la console Claude, *Workload identity*,
-      onglet *Authentication history*.
+   5. Vérification sans frais : après chaque déploiement, l'étape « Fédération Claude » de la CI (non bloquante) fait
+      un échange de jeton avec le service token (`GET /api/claude?verifier=1`, aucun appel au modèle) ; à la main,
+      ouvrir la même adresse sur `https://pokedex-kanto-<env>.pokedex-terence.workers.dev`. Un refus est détaillé dans
+      la console Claude, *Workload identity*, onglet *Authentication history*.
+   État (03/11/2026) : règle `pokedex-kanto` et compte de service `pokedex-analyse` créés dans l'espace `pokemon` par
+   l'assistant de la console (l'API d'administration n'est pas ouverte aux comptes individuels), identifiants dans
+   `wrangler.jsonc` ; clé de staging dans le JWKS de l'émetteur, clé de production à créer puis à y ajouter.
 
 **Promos au style IR** : pour les espèces sans IR ni SIR en français, des promos Black Star au style « Illustration
 Rare » sont ajoutées à la main (catégorie `PROMO_IR`, comptée comme IR) après vérification visuelle ; TCGdex les classe
