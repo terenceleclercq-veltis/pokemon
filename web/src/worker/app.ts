@@ -3,16 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { secureHeaders } from "hono/secure-headers";
 import type * as z from "zod/mini";
-import {
-  ANALYSE_STEPS,
-  analyseBody,
-  askClaude,
-  costUsd,
-  explain,
-  REQUIRED_STEPS,
-  verdict,
-  type PhotoRef,
-} from "./analyse";
+import { analyseBody, askClaude, costUsd, explain, MIN_PHOTOS, orderPhotos, type PhotoRef, verdict } from "./analyse";
 import { devBypass, verifyAccessJwt } from "./auth";
 import { candidates, cardFromTcgdex, nameMatches } from "./catalog";
 import { checkFederation, claude, claudeConfigured } from "./claude";
@@ -579,13 +570,13 @@ app.get("/api/claude", async (c) => {
 });
 
 /**
- * Lance l'analyse d'un scan complet (recto, verso, 8 coins). Réponse en NDJSON, ligne par ligne : l'avancement
+ * Lance l'analyse des photos d'un scan (au moins le recto et le verso). Réponse en NDJSON, ligne par ligne : l'avancement
  * ({etape}), puis {analyse} ou {erreur}. La connexion reste ouverte pendant que Claude examine les photos (une à
  * deux minutes) ; des lignes régulières la maintiennent.
  */
 app.post("/api/scans/:id/analyses", async (c) => {
   const { id } = parse(scanParam, c.req.param());
-  const body = parse(analyseBody, await jsonBody(c));
+  parse(analyseBody, await jsonBody(c));
   if (!claudeConfigured(c.env)) throw fail(409, "analyse par Claude pas encore configurée");
   const db = c.env.DB;
   if (!(await db.prepare("SELECT 1 FROM scan WHERE id = ?").bind(id).first())) throw fail(404, "scan introuvable");
@@ -593,8 +584,7 @@ app.post("/api/scans/:id/analyses", async (c) => {
     .prepare("SELECT id, step, mime FROM photo WHERE scan_id = ?")
     .bind(id)
     .all<PhotoRef>();
-  const missing = REQUIRED_STEPS.filter((s) => !photos.some((p) => p.step === s));
-  if (missing.length) throw fail(409, `scan incomplet : il manque ${missing.join(", ")}`);
+  if (photos.length < MIN_PHOTOS) throw fail(409, "il faut au moins 2 photos : le recto et le verso entiers");
   const recent = new Date(Date.now() - ANALYSE_TIMEOUT_MS).toISOString();
   if (
     await db
@@ -610,13 +600,11 @@ app.post("/api/scans/:id/analyses", async (c) => {
   const model = c.env.CLAUDE_MODEL;
   await db.batch([
     db
-      .prepare(
-        "INSERT INTO analyse (id, scan_id, created_at, state, model, centrage) VALUES (?1, ?2, ?3, 'en_cours', ?4, ?5)",
-      )
-      .bind(aid, id, new Date().toISOString(), model, JSON.stringify(body.centrage)),
+      .prepare("INSERT INTO analyse (id, scan_id, created_at, state, model) VALUES (?1, ?2, ?3, 'en_cours', ?4)")
+      .bind(aid, id, new Date().toISOString(), model),
     audit(db, c.get("user"), "analyse.start", `${id} ${aid}`),
   ]);
-  const ordered = ANALYSE_STEPS.flatMap((s) => photos.filter((p) => p.step === s));
+  const ordered = orderPhotos(photos);
 
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
   const writer = writable.getWriter();
@@ -641,7 +629,7 @@ app.post("/api/scans/:id/analyses", async (c) => {
           emit({ etape, photos: ordered.length });
         },
       );
-      const r = verdict(out.findings, body.centrage);
+      const r = verdict(out.findings);
       await db
         .prepare(
           `UPDATE analyse SET state = 'terminee', finished_at = ?1, constats = ?2, verdict = ?3, plafond = ?4, raisons = ?5,

@@ -9,9 +9,8 @@ import {
   explain,
   FINDINGS_SCHEMA,
   findings,
-  REQUIRED_STEPS,
+  orderPhotos,
   verdict,
-  type Centering,
   type Findings,
 } from "../../src/worker/analyse";
 import { PERFECT, toReply } from "../helpers";
@@ -20,15 +19,17 @@ const corner = PERFECT.coins.recto.hg;
 const edge = PERFECT.bords.recto.h;
 const corners = PERFECT.coins.recto;
 const edges = PERFECT.bords.recto;
-const face = (lr: number, tb: number, sure = true, coupe?: ("hg" | "hd" | "bd" | "bg")[]) => ({
-  ...{ gauche: 3, droite: 3, haut: 3, bas: 3, lr, tb, sure },
-  ...(coupe ? { coupe } : {}),
-});
-const CENTERED: Centering = { recto: face(51, 50), verso: face(52, 53) };
+type Conf = "faible" | "moyenne" | "elevee";
+/** Bordures du recto mesurées par Claude (pixels), le verso restant celui de PERFECT. */
+const recto = (gauche: number, droite: number, haut = 120, bas = 120, confiance: Conf = "elevee", photo = 1) =>
+  ({
+    ...PERFECT,
+    centrage: { ...PERFECT.centrage, recto: { photo, gauche, droite, haut, bas, confiance, detail: "" } },
+  }) satisfies Findings;
 
 describe("pré-évaluation : verdict par règles fixes", () => {
   it("tout est parfait : candidat au 10, rien de limitant ni d'incertain", () => {
-    expect(verdict(PERFECT, CENTERED)).toEqual({
+    expect(verdict(PERFECT)).toEqual({
       plafond: 10,
       verdict: "candidat_10",
       limites: [],
@@ -40,62 +41,38 @@ describe("pré-évaluation : verdict par règles fixes", () => {
       ...PERFECT,
       coins: { ...PERFECT.coins, verso: { ...corners, hd: { ...corner, etat: "leger" } } },
     };
-    const r = verdict(leger, CENTERED);
+    const r = verdict(leger);
     expect(r).toMatchObject({ plafond: 9, verdict: "probable_9", limites: ["coin haut droit du verso (léger)"] });
     const blanchi: Findings = {
       ...leger,
       bords: { ...PERFECT.bords, recto: { ...edges, b: { ...edge, blanchiment: "visible" } } },
     };
-    expect(verdict(blanchi, CENTERED)).toMatchObject({
+    expect(verdict(blanchi)).toMatchObject({
       plafond: 8,
       verdict: "huit_ou_moins",
       limites: ["bord bas du recto (blanchiment visible)"],
     });
   });
-  it("centrage mesuré : tolérances PSA du recto (55/45) et du verso (75/25)", () => {
+  it("centrage mesuré par Claude (bordures en pixels) : tolérances PSA du recto (55/45) et du verso (75/25)", () => {
     expect([55, 55.1, 60, 65, 70].map((v) => centeringCap("recto", v))).toEqual([10, 9, 9, 8, 7]);
     expect([75, 80, 90, 95].map((v) => centeringCap("verso", v))).toEqual([10, 9, 9, 8]);
-    const r = verdict(PERFECT, { ...CENTERED, recto: face(58.3, 50) });
-    expect(r).toMatchObject({ plafond: 9, limites: ["centrage du recto (58,3/41,7)"] });
+    expect(verdict(recto(140, 100))).toMatchObject({ plafond: 9, limites: ["centrage du recto (58,3/41,7)"] });
+    // le côté le plus décentré compte (ici haut-bas)
+    expect(verdict(recto(120, 120, 150, 90))).toMatchObject({ plafond: 8, limites: ["centrage du recto (62,5/37,5)"] });
   });
-  it("centrage non mesurable : impression de Claude, comptée comme incertaine", () => {
-    const r = verdict(
-      { ...PERFECT, centrage_visuel: { recto: "limite", verso: "bon" } },
-      { recto: null, verso: face(50, 50) },
-    );
-    expect(r.plafond).toBe(9);
-    expect(r.incertains).toEqual(["centrage du recto (à l'œil : limite)"]);
-    expect(verdict(PERFECT, { ...CENTERED, verso: face(60, 50, false) }).incertains).toEqual([
-      "centrage du verso (à l'œil : bon ; mesure incertaine : 60/40)",
-    ]);
-  });
-  it("mesure démentie par l'œil (bord mal repéré) ou sur image rognée : l'œil plafonne, centrage à confirmer", () => {
-    const contredite = verdict(PERFECT, { ...CENTERED, recto: face(52, 70) });
-    expect(contredite).toMatchObject({
+  it("centrage non mesurable : pas de plafond, mais à confirmer ; photo de biais : mesure incertaine", () => {
+    expect(verdict(recto(0, 0, 0, 0, "faible", 0))).toMatchObject({
       plafond: 10,
       verdict: "candidat_10",
-      incertains: ["centrage du recto (à l'œil : bon ; mesure contredite : 70/30)"],
+      incertains: ["centrage du recto (non mesurable sur les photos)"],
     });
-    // écart modéré (« limite » à l'œil, 62/38 mesuré) : la mesure décide
-    const limite = { ...PERFECT, centrage_visuel: { recto: "limite", verso: "bon" } } as const;
-    expect(verdict(limite, { ...CENTERED, recto: face(62, 50) })).toMatchObject({
-      plafond: 8,
-      limites: ["centrage du recto (62/38)"],
-      incertains: [],
+    expect(verdict(recto(150, 100, 120, 120, "faible"))).toMatchObject({
+      plafond: 9,
+      incertains: ["centrage du recto (60/40)"],
     });
-    // le scan réel de la carte n° 116 : recto coupé en bas, verso coupé aux quatre coins
-    const rogne = verdict(PERFECT, {
-      recto: { ...face(56.3, 70, false, ["bd", "bg"]), bas: 1.2 },
-      verso: face(68.6, 68.5, false, ["hg", "hd", "bd", "bg"]),
-    });
-    expect(rogne).toMatchObject({ plafond: 10, verdict: "candidat_10" });
-    expect(rogne.incertains).toEqual([
-      "centrage du recto (à l'œil : bon ; mesure sur image rognée : 70/30)",
-      "centrage du verso (à l'œil : bon ; mesure sur image rognée : 68,6/31,4)",
-    ]);
   });
   it("photos inexploitables, ou plus de 4 constats incertains : photos insuffisantes", () => {
-    expect(verdict({ ...PERFECT, qualite_photos: { exploitable: false, problemes: ["flou"] } }, CENTERED).verdict).toBe(
+    expect(verdict({ ...PERFECT, qualite_photos: { exploitable: false, problemes: ["flou"] } }).verdict).toBe(
       "photos_insuffisantes",
     );
     const flou = { ...corner, confiance: "faible" } as const;
@@ -103,7 +80,7 @@ describe("pré-évaluation : verdict par règles fixes", () => {
       ...PERFECT,
       coins: { recto: { hg: flou, hd: flou, bd: flou, bg: corner }, verso: { ...corners, hg: flou, hd: flou } },
     };
-    expect(verdict(vague, CENTERED)).toMatchObject({ verdict: "photos_insuffisantes", plafond: 10 });
+    expect(verdict(vague)).toMatchObject({ verdict: "photos_insuffisantes", plafond: 10 });
   });
   it("coût d'Opus 5.5 (4 $ et 20 $ par million de jetons) ; modèle inconnu : coût non chiffré", () => {
     expect(costUsd("claude-opus-5-5", 30_000, 4_000)).toBe(0.2);
@@ -115,6 +92,18 @@ describe("pré-évaluation : verdict par règles fixes", () => {
     const keys = (o: { required?: string[] }) => o.required;
     expect(keys(FINDINGS_SCHEMA)).toEqual(Object.keys(PERFECT));
     expect(findings.safeParse({ ...PERFECT, coins: { recto: corners } }).success).toBe(false);
+  });
+  it("ordre d'envoi : étapes de l'ancien scanner, puis photos libres par numéro ; 20 au plus", () => {
+    const steps = ["photo-10", "photo-2", "verso", "recto-hg", "recto", "photo-1"].map((step) => ({ step }));
+    expect(orderPhotos(steps).map((p) => p.step)).toEqual([
+      "recto",
+      "verso",
+      "recto-hg",
+      "photo-1",
+      "photo-2",
+      "photo-10",
+    ]);
+    expect(orderPhotos(Array.from({ length: 25 }, (_, i) => ({ step: `photo-${String(i + 1)}` })))).toHaveLength(20);
   });
 });
 
@@ -136,7 +125,12 @@ function fakeClient(reply: () => Promise<unknown>) {
     create,
   };
 }
-const photos = REQUIRED_STEPS.map((step, i) => ({ id: `p${String(i)}`, step, mime: "image/jpeg" }));
+/** Six photos libres (envoyées trois par trois). */
+const photos = Array.from({ length: 6 }, (_, i) => ({
+  id: `p${String(i)}`,
+  step: `photo-${String(i + 1)}`,
+  mime: "image/jpeg",
+}));
 const read = () => Promise.resolve(new Uint8Array([0xff, 0xd8, 0xff, 0]).buffer);
 const message = (text: string, stop = "end_turn") => ({
   content: [
@@ -154,9 +148,9 @@ describe("pré-évaluation : appel à Claude", () => {
     const out = await askClaude(f.client, "claude-opus-5-5", photos, read, (s) => steps.push(s));
     expect(out).toEqual({ findings: PERFECT, input_tokens: 30_000, output_tokens: 4_000 });
     expect(steps).toEqual(["envoi", "analyse"]);
-    expect(f.upload).toHaveBeenCalledTimes(10);
+    expect(f.upload).toHaveBeenCalledTimes(6);
     expect(f.upload.mock.calls[0]![0]).toMatchObject({ expires_in_seconds: 3600 });
-    expect(f.upload.mock.calls[0]![0].file.name).toBe("recto.jpg");
+    expect(f.upload.mock.calls[0]![0].file.name).toBe("photo-1.jpg");
     const params = f.create.mock.calls[0] as unknown as [
       { model: string; output_config: unknown; messages: { content: { type: string; text?: string }[] }[] },
     ];
@@ -165,14 +159,24 @@ describe("pré-évaluation : appel à Claude", () => {
       effort: "high",
       format: { type: "json_schema", schema: FINDINGS_SCHEMA },
     });
+    // photos libres : un simple numéro, Claude dit lui-même ce qu'elles montrent
     const content = params[0].messages[0]!.content;
-    expect(content[0]).toEqual({
-      type: "text",
-      text: "Photo 1 : recto entier, redressé (63 × 88 mm, 20 pixels par mm)",
-    });
+    expect(content[0]).toEqual({ type: "text", text: "Photo 1" });
     expect(content[1]).toMatchObject({ type: "image", source: { type: "file" } });
-    expect(content[4]).toEqual({ type: "text", text: "Photo 3 : recto, gros plan du coin haut gauche" });
-    expect(f.remove).toHaveBeenCalledTimes(10);
+    expect(content[4]).toEqual({ type: "text", text: "Photo 3" });
+    expect(f.remove).toHaveBeenCalledTimes(6);
+  });
+  it("ancien scan (étapes du scanner) : légende de chaque photo gardée", async () => {
+    const f = fakeClient(() => Promise.resolve(message(JSON.stringify(toReply(PERFECT)))));
+    const legacy = ["recto", "verso", "recto-hg"].map((step, i) => ({ id: `l${String(i)}`, step, mime: "image/jpeg" }));
+    await askClaude(f.client, "m", legacy, read, () => undefined);
+    const params = f.create.mock.calls[0] as unknown as [{ messages: { content: { text?: string }[] }[] }];
+    const texts = params[0].messages[0]!.content.flatMap((b) => (b.text ? [b.text] : []));
+    expect(texts.slice(0, 3)).toEqual([
+      "Photo 1 : recto entier, redressé (63 × 88 mm, 20 pixels par mm)",
+      "Photo 2 : verso entier, redressé (63 × 88 mm, 20 pixels par mm)",
+      "Photo 3 : recto, gros plan du coin haut gauche",
+    ]);
   });
   it("refus, réponse tronquée ou hors format : erreur explicite, fichiers supprimés quand même", async () => {
     for (const [reply, error] of [
@@ -183,7 +187,7 @@ describe("pré-évaluation : appel à Claude", () => {
     ] as const) {
       const f = fakeClient(() => Promise.resolve(reply));
       await expect(askClaude(f.client, "m", photos, read, () => undefined)).rejects.toThrow(error);
-      expect(f.remove).toHaveBeenCalledTimes(10);
+      expect(f.remove).toHaveBeenCalledTimes(6);
     }
   });
   it("erreur d'Anthropic : statut, type et message enregistrés, avec l'étape (envoi des photos ou analyse)", async () => {
@@ -199,15 +203,17 @@ describe("pré-évaluation : appel à Claude", () => {
     const upload = fakeClient(() => Promise.resolve(message(JSON.stringify(toReply(PERFECT)))));
     upload.upload.mockRejectedValueOnce(credit);
     await expect(askClaude(upload.client, "m", photos, read, () => undefined)).rejects.toThrow(
-      "envoi des photos refusé (recto) — Claude a répondu 400 (invalid_request_error) : Your credit balance is too low",
+      "envoi des photos refusé (photo-1) — Claude a répondu 400 (invalid_request_error) : Your credit balance is too low",
     );
+    // premier lot de trois : un refus arrête les envois ; les deux photos envoyées sont supprimées
     expect(upload.create).not.toHaveBeenCalled();
-    expect(upload.remove).toHaveBeenCalledTimes(9);
+    expect(upload.upload).toHaveBeenCalledTimes(3);
+    expect(upload.remove).toHaveBeenCalledTimes(2);
     const refused = fakeClient(() => Promise.reject(credit));
     await expect(askClaude(refused.client, "m", photos, read, () => undefined)).rejects.toThrow(
       "analyse refusée — Claude a répondu 400 (invalid_request_error) : Your credit balance is too low",
     );
-    expect(refused.remove).toHaveBeenCalledTimes(10);
+    expect(refused.remove).toHaveBeenCalledTimes(6);
   });
   it("réponse en listes, rangée par face, coin et bord ; entrée manquante refusée", () => {
     expect(arrange(toReply(PERFECT))).toEqual(PERFECT);
@@ -237,15 +243,16 @@ describe("pré-évaluation : appel à Claude", () => {
     expect(first[0].output_config.format).toBeDefined();
     expect(second[0].output_config).toEqual({ effort: "high" });
     expect(second[0].system).toContain("Réponds uniquement par un objet JSON");
-    expect(f.remove).toHaveBeenCalledTimes(10);
+    expect(f.remove).toHaveBeenCalledTimes(6);
   });
   it("photo absente de R2 : aucune demande au modèle, les fichiers déjà envoyés sont supprimés", async () => {
     const f = fakeClient(() => Promise.resolve(message(JSON.stringify(toReply(PERFECT)))));
     const partial = (id: string) => (id === "p3" ? Promise.resolve(null) : read());
     const err = await askClaude(f.client, "m", photos, partial, () => undefined).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(AnalyseError);
-    expect((err as Error).message).toBe("photo introuvable (recto-hd)");
+    expect((err as Error).message).toBe("photo introuvable (photo-4)");
     expect(f.create).not.toHaveBeenCalled();
-    expect(f.remove).toHaveBeenCalledTimes(9);
+    // second lot (photos 4 à 6) : les deux autres photos du lot sont parties, puis supprimées avec les trois premières
+    expect(f.remove).toHaveBeenCalledTimes(5);
   });
 });

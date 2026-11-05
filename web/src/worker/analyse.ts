@@ -1,5 +1,6 @@
-// Pré-évaluation PSA d'un scan par Claude : Claude relève l'état des coins, des bords et de la surface sur les photos
-// (format imposé) ; le site mesure lui-même le centrage ; le verdict découle de règles fixes, pas du modèle.
+// Pré-évaluation PSA d'une carte par Claude, sur des photos prises librement (vues entières et gros plans, dans
+// n'importe quel ordre) : Claude trie les photos, relève l'état des coins, des bords et de la surface et mesure les
+// bordures (format imposé) ; le verdict découle de règles fixes, pas du modèle.
 import { APIError } from "@anthropic-ai/sdk";
 import type Anthropic from "@anthropic-ai/sdk";
 import * as z from "zod/mini";
@@ -10,7 +11,6 @@ export const CORNER = ["parfait", "leger", "visible", "important"] as const;
 export const EDGE = ["aucun", "leger", "visible", "important"] as const;
 export const SURFACE = ["aucune", "legere", "visible", "importante"] as const;
 export const CONFIDENCE = ["faible", "moyenne", "elevee"] as const;
-export const VISUAL = ["bon", "limite", "decale"] as const;
 const FACES = ["recto", "verso"] as const;
 const CORNERS = ["hg", "hd", "bd", "bg"] as const;
 const EDGES = ["h", "d", "b", "g"] as const;
@@ -27,20 +27,37 @@ const surface = z.object({
   defauts: z.array(z.string().check(z.maxLength(200))).check(z.maxLength(12)),
   confiance: confidence,
 });
+const px = z.number().check(z.gte(0), z.lte(10_000));
+/** Bordures mesurées par Claude sur une vue entière (en pixels de la photo ; photo 0 : aucune vue utilisable). */
+const borders = z.object({
+  photo: z.number().check(z.int(), z.gte(0), z.lte(40)),
+  gauche: px,
+  droite: px,
+  haut: px,
+  bas: px,
+  confiance: confidence,
+  detail,
+});
 const byFace = <T extends z.ZodMiniType>(t: T) => z.object({ recto: t, verso: t });
 const corners = z.object({ hg: corner, hd: corner, bd: corner, bg: corner });
 const edges = z.object({ h: edge, d: edge, b: edge, g: edge });
+const notes = (n: number) => z.array(z.string().check(z.maxLength(200))).check(z.maxLength(n));
 
 /** Réponse de Claude, revalidée côté serveur (le format est imposé, mais on ne fait pas confiance aveuglément). */
 export const findings = z.object({
-  qualite_photos: z.object({
-    exploitable: z.boolean(),
-    problemes: z.array(z.string().check(z.maxLength(200))).check(z.maxLength(12)),
-  }),
+  qualite_photos: z.object({ exploitable: z.boolean(), problemes: notes(12) }),
+  /** Ce que montre chaque photo, dans l'ordre d'envoi. */
+  photos: z
+    .array(
+      z.object({ numero: z.number().check(z.int(), z.gte(1), z.lte(40)), contenu: z.string().check(z.maxLength(200)) }),
+    )
+    .check(z.maxLength(40)),
   coins: byFace(corners),
   bords: byFace(edges),
   surface: byFace(surface),
-  centrage_visuel: byFace(z.enum(VISUAL)),
+  centrage: byFace(borders),
+  /** Photos qui manquent pour conclure, à prendre puis à ajouter au scan. */
+  a_prendre: notes(8),
   resume: z.string().check(z.maxLength(1500)),
 });
 export type Findings = z.infer<typeof findings>;
@@ -59,8 +76,10 @@ const strict = (properties: Record<string, unknown>) => ({
 const enumOf = (values: readonly string[]) => ({ type: "string", enum: [...values] });
 const strings = { type: "array", items: { type: "string" } };
 const list = (item: Record<string, unknown>) => ({ type: "array", items: strict(item) });
+const pixels = { type: "number" };
 export const FINDINGS_SCHEMA = strict({
   qualite_photos: strict({ exploitable: { type: "boolean" }, problemes: strings }),
+  photos: list({ numero: { type: "integer" }, contenu: { type: "string" } }),
   coins: list({
     face: enumOf(FACES),
     coin: enumOf(CORNERS),
@@ -76,7 +95,17 @@ export const FINDINGS_SCHEMA = strict({
     detail: { type: "string" },
   }),
   surface: list({ face: enumOf(FACES), gravite: enumOf(SURFACE), defauts: strings, confiance: enumOf(CONFIDENCE) }),
-  centrage_visuel: strict({ recto: enumOf(VISUAL), verso: enumOf(VISUAL) }),
+  centrage: list({
+    face: enumOf(FACES),
+    photo: { type: "integer" },
+    gauche: pixels,
+    droite: pixels,
+    haut: pixels,
+    bas: pixels,
+    confiance: enumOf(CONFIDENCE),
+    detail: { type: "string" },
+  }),
+  a_prendre: strings,
   resume: { type: "string" },
 });
 
@@ -84,6 +113,7 @@ export const FINDINGS_SCHEMA = strict({
 const face = z.enum(FACES);
 export const reply = z.object({
   qualite_photos: findings.shape.qualite_photos,
+  photos: findings.shape.photos,
   coins: z
     .array(z.object({ face, coin: z.enum(CORNERS), etat: z.enum(CORNER), confiance: confidence, detail }))
     .check(z.maxLength(16)),
@@ -93,7 +123,8 @@ export const reply = z.object({
   surface: z
     .array(z.object({ face, gravite: z.enum(SURFACE), defauts: surface.shape.defauts, confiance: confidence }))
     .check(z.maxLength(4)),
-  centrage_visuel: findings.shape.centrage_visuel,
+  centrage: z.array(z.extend(borders, { face })).check(z.maxLength(4)),
+  a_prendre: findings.shape.a_prendre,
   resume: findings.shape.resume,
 });
 export type Reply = z.infer<typeof reply>;
@@ -127,36 +158,28 @@ export function arrange(r: Reply): Findings {
     const { gravite, defauts, confiance } = pick(r.surface, (x) => x.face === f, `surface du ${f}`);
     return { gravite, defauts, confiance };
   };
+  const byCentering = (f: Face) => {
+    const { photo, gauche, droite, haut, bas, confiance, detail } = pick(
+      r.centrage,
+      (x) => x.face === f,
+      `centrage du ${f}`,
+    );
+    return { photo, gauche, droite, haut, bas, confiance, detail };
+  };
   return {
     qualite_photos: r.qualite_photos,
+    photos: r.photos,
     coins: { recto: byCorner("recto"), verso: byCorner("verso") },
     bords: { recto: byEdge("recto"), verso: byEdge("verso") },
     surface: { recto: bySurface("recto"), verso: bySurface("verso") },
-    centrage_visuel: r.centrage_visuel,
+    centrage: { recto: byCentering("recto"), verso: byCentering("verso") },
+    a_prendre: r.a_prendre,
     resume: r.resume,
   };
 }
 
-// --- centrage mesuré par le site -------------------------------------------------------------------------------------
-
-const mm = z.number().check(z.gte(0), z.lte(30));
-const pct = z.number().check(z.gte(50), z.lte(100));
-export const facesBorders = z.object({
-  gauche: mm,
-  droite: mm,
-  haut: mm,
-  bas: mm,
-  lr: pct,
-  tb: pct,
-  sure: z.boolean(),
-  /** Coins de l'image où la carte est coupée (absent des mesures faites avant cette vérification). */
-  coupe: z.optional(z.array(z.enum(CORNERS)).check(z.maxLength(4))),
-});
-/** Bordures du recto et du verso (null : non mesurables sur la photo). */
-export const centering = z.strictObject({ recto: z.nullable(facesBorders), verso: z.nullable(facesBorders) });
-export type Centering = z.infer<typeof centering>;
-/** Corps de la demande d'analyse : le centrage mesuré par le site sur le recto et le verso redressés. */
-export const analyseBody = z.strictObject({ centrage: centering });
+/** Corps de la demande d'analyse : rien d'obligatoire (un ancien client envoie encore son centrage, ignoré). */
+export const analyseBody = z.strictObject({ centrage: z.optional(z.unknown()) });
 
 // --- verdict ---------------------------------------------------------------------------------------------------------
 
@@ -166,10 +189,9 @@ export type Verdict = "candidat_10" | "probable_9" | "huit_ou_moins" | "photos_i
 const CORNER_CAP: Record<(typeof CORNER)[number], Grade> = { parfait: 10, leger: 9, visible: 8, important: 7 };
 const EDGE_CAP: Record<(typeof EDGE)[number], Grade> = { aucun: 10, leger: 9, visible: 8, important: 7 };
 const SURFACE_CAP: Record<(typeof SURFACE)[number], Grade> = { aucune: 10, legere: 9, visible: 8, importante: 7 };
-const VISUAL_CAP: Record<(typeof VISUAL)[number], Grade> = { bon: 10, limite: 9, decale: 8 };
 const CORNER_NAME = { hg: "haut gauche", hd: "haut droit", bd: "bas droit", bg: "bas gauche" } as const;
 /** Libellés des raisons, lus par Terence : accents et virgule décimale. */
-const WORD: Record<string, string> = { leger: "léger", legere: "légère", decale: "décalé" };
+const WORD: Record<string, string> = { leger: "léger", legere: "légère" };
 const word = (v: string) => WORD[v] ?? v;
 const dec = (v: number) => String(Math.round(v * 10) / 10).replace(".", ",");
 const EDGE_NAME = { h: "haut", d: "droit", b: "bas", g: "gauche" } as const;
@@ -193,27 +215,25 @@ export interface Reasons {
   incertains: string[];
 }
 
+/** Part de la plus large de deux bordures opposées, en % (50 = parfait). */
+const share = (a: number, b: number) => (100 * Math.max(a, b)) / (a + b);
+
 /**
- * Centrage d'une face : la mesure du site décide si elle est fiable et compatible avec l'examen visuel de Claude.
- * Sinon (image rognée, bordures irrégulières, ou mesure nettement pire que l'impression visuelle, signe d'un bord
- * mal repéré), c'est l'impression visuelle qui plafonne la note, comme constat incertain, à confirmer.
+ * Centrage d'une face, d'après les bordures mesurées par Claude sur une vue entière : le côté le plus décentré
+ * (gauche-droite ou haut-bas) plafonne la note. Sans mesure possible : pas de plafond, mais un point à confirmer.
  */
-function centeringReason(face: Face, m: Centering[Face], eye: (typeof VISUAL)[number]): [string, Grade, Confidence] {
-  const seen = `à l'œil : ${word(eye)}`;
-  if (!m) return [`centrage du ${face} (${seen})`, VISUAL_CAP[eye], "faible"];
-  const worst = Math.max(m.lr, m.tb);
-  const cap = centeringCap(face, worst);
-  const ratio = `${dec(worst)}/${dec(100 - worst)}`;
-  if (m.sure && VISUAL_CAP[eye] - cap < 2) return [`centrage du ${face} (${ratio})`, cap, "elevee"];
-  const doubt = m.coupe?.length ? "mesure sur image rognée" : m.sure ? "mesure contredite" : "mesure incertaine";
-  return [`centrage du ${face} (${seen} ; ${doubt} : ${ratio})`, VISUAL_CAP[eye], "faible"];
+export function centeringReason(face: Face, m: Findings["centrage"][Face]): [string, Grade, Confidence] {
+  if (!(m.photo > 0 && m.gauche + m.droite > 0 && m.haut + m.bas > 0))
+    return [`centrage du ${face} (non mesurable sur les photos)`, 10, "faible"];
+  const worst = Math.max(share(m.gauche, m.droite), share(m.haut, m.bas));
+  return [`centrage du ${face} (${dec(worst)}/${dec(100 - worst)})`, centeringCap(face, worst), m.confiance];
 }
 
 /**
  * Verdict par règles fixes : chaque critère plafonne la note (coin léger -> 9, visible -> 8…), la note retenue est le
  * plus bas des plafonds. Photos inexploitables, ou trop de constats incertains : « photos insuffisantes ».
  */
-export function verdict(f: Findings, c: Centering): Reasons {
+export function verdict(f: Findings): Reasons {
   const caps: { label: string; cap: Grade; sure: boolean }[] = [];
   const add = (label: string, cap: Grade, conf: Confidence) => caps.push({ label, cap, sure: conf !== "faible" });
   for (const face of FACES) {
@@ -227,7 +247,7 @@ export function verdict(f: Findings, c: Centering): Reasons {
     }
     const s = f.surface[face];
     add(`surface du ${face} (${word(s.gravite)})`, SURFACE_CAP[s.gravite], s.confiance);
-    add(...centeringReason(face, c[face], f.centrage_visuel[face]));
+    add(...centeringReason(face, f.centrage[face]));
   }
   const plafond = Math.min(...caps.map((x) => x.cap)) as Grade;
   const incertains = caps.filter((x) => !x.sure).map((x) => x.label);
@@ -261,40 +281,58 @@ export function costUsd(model: string, input: number, output: number): number | 
 
 // --- appel ----------------------------------------------------------------------------------------------------------
 
-/** Photos envoyées, dans cet ordre : vues entières, coins, puis bords s'ils ont été pris. */
-export const ANALYSE_STEPS = [
+/** Étapes du scanner précédent (anciens scans), dans l'ordre d'envoi ; puis les photos libres « photo-N ». */
+const LEGACY_STEPS = [
   ...FACES,
   ...FACES.flatMap((f) => CORNERS.map((c) => `${f}-${c}`)),
   ...FACES.flatMap((f) => EDGES.map((e) => `${f}-${e}`)),
 ];
-export const REQUIRED_STEPS = ANALYSE_STEPS.slice(0, 10);
+/** Photos : au moins le recto et le verso ; au plus 20 (au-delà, l'API réduit chaque image à 2000 px). */
+export const MIN_PHOTOS = 2;
+export const MAX_PHOTOS = 20;
+const rank = (step: string) => {
+  const legacy = LEGACY_STEPS.indexOf(step);
+  return legacy >= 0 ? legacy : 100 + Number(/^photo-(\d+)$/.exec(step)?.[1] ?? 99);
+};
+/** Photos dans l'ordre d'envoi : anciennes étapes du scanner, puis photos libres par numéro. */
+export const orderPhotos = <T extends { step: string }>(photos: T[]) =>
+  [...photos].sort((a, b) => rank(a.step) - rank(b.step)).slice(0, MAX_PHOTOS);
+/** Légende d'une photo : ce qu'était l'étape du scanner précédent ; rien pour une photo libre (Claude la décrit). */
 const STEP_LABEL = (step: string) => {
-  const [face, part] = step.split("-") as [Face, string | undefined];
-  if (!part) return `${face} entier, redressé (63 × 88 mm, 20 pixels par mm)`;
-  if (part in CORNER_NAME) return `${face}, gros plan du coin ${CORNER_NAME[part as keyof typeof CORNER_NAME]}`;
-  return `${face}, gros plan du bord ${EDGE_NAME[part as keyof typeof EDGE_NAME]}`;
+  const [face, part] = step.split("-") as [Face | "photo", string | undefined];
+  if (face === "photo") return "";
+  if (!part) return ` : ${face} entier, redressé (63 × 88 mm, 20 pixels par mm)`;
+  if (part in CORNER_NAME) return ` : ${face}, gros plan du coin ${CORNER_NAME[part as keyof typeof CORNER_NAME]}`;
+  return ` : ${face}, gros plan du bord ${EDGE_NAME[part as keyof typeof EDGE_NAME]}`;
 };
 
-export const SYSTEM = `Tu pré-évalues une carte Pokémon avant un envoi au grading PSA. Les photos viennent d'un scanner \
-guidé : recto et verso entiers, redressés à plat, puis des gros plans de chaque coin (et parfois de chaque bord). \
-Relève ce que les photos montrent, sans rien supposer au-delà.
+export const SYSTEM = `Tu pré-évalues une carte Pokémon avant un envoi au grading PSA. Les photos ont été prises \
+librement au téléphone, en haute définition : vues entières du recto et du verso, et gros plans (zoom) des zones à \
+vérifier, dans n'importe quel ordre. Identifie d'abord ce que montre chaque photo, puis relève l'état de la carte en \
+t'appuyant pour chaque zone sur la photo la plus nette (un gros plan plutôt qu'une vue entière). Ne suppose rien \
+au-delà de ce que les photos montrent.
 
+Photos : une entrée par photo (« numero » comme dans sa légende), avec son contenu en quelques mots (« recto \
+entier », « gros plan du coin haut droit du verso », « floue, inutilisable »…).
 Coins : « parfait » (pointe nette, aucun blanc), « leger » (micro-usure, point blanc à peine visible), « visible » \
 (blanchiment ou arrondi net), « important » (coin écrasé, plié ou décollé).
 Bords : blanchiment « aucun », « leger », « visible » ou « important ». Sur le verso bleu, le moindre blanc se voit.
 Surface de chaque face : rayures, lignes d'impression, bosses, plis, taches, défauts du holo ; gravité « aucune », \
 « legere », « visible » ou « importante », avec la liste des défauts vus.
-Centrage : ton impression visuelle, face par face, en comparant les bordures opposées : « bon » (recto \
-jusqu'à 55/45 environ, verso jusqu'à 75/25), « limite » (recto vers 60/40, verso vers 90/10), « decale » (au-delà). \
-Le site mesure aussi le centrage ; ton impression sert de contrôle.
+Centrage : sur la vue entière la plus droite et la plus nette de chaque face, mesure en pixels de cette photo la \
+largeur de la bordure gauche, droite, haut et bas, au milieu de chaque côté, du bord de la carte jusqu'au cadre ou \
+au début de l'illustration. « photo » : numéro de la photo mesurée ; 0 et largeurs à 0 si aucune vue entière ne le \
+permet. Confiance « faible » si la photo est de biais, floue ou coupée.
 Confiance de chaque constat : « elevee » si la zone est nette et bien éclairée, « moyenne », « faible » si elle est \
-floue, masquée par un reflet ou trop petite. Ne donne « parfait » ou « aucun » avec une confiance élevée que sur une \
-zone nette.
+floue, masquée par un reflet, trop petite ou absente des photos. Ne donne « parfait » ou « aucun » avec une confiance \
+élevée que sur une zone nette.
 Distingue les défauts de la carte des artefacts de photo (reflet, poussière sur l'objectif, compression, sleeve).
-Qualité des photos : « exploitable » à faux si l'ensemble ne permet pas de juger la carte ; liste les problèmes.
+Qualité des photos : « exploitable » à faux si l'ensemble ne permet pas de juger la carte ; liste les problèmes. \
+« a_prendre » : les photos qui manquent pour conclure, au plus 6 (« gros plan net du coin bas gauche du verso, sans \
+reflet »…) ; vide si rien ne manque.
 Réponse : « coins » contient 8 entrées, une par coin de chaque face (« coin » hg, hd, bd ou bg = haut gauche, \
-haut droit, bas droit, bas gauche) ; « bords » 8 entrées, une par bord de chaque face (« bord » h, d, b ou g) ; \
-« surface » 2 entrées, une par face.
+haut droit, bas droit, bas gauche, carte vue de face) ; « bords » 8 entrées, une par bord de chaque face (« bord » h, \
+d, b ou g) ; « surface » 2 entrées et « centrage » 2 entrées, une par face.
 Réponds en français, en phrases courtes ; « detail » vide s'il n'y a rien à signaler ; « resume » en deux ou trois \
 phrases, sans donner de note.`;
 
@@ -363,20 +401,22 @@ export async function askClaude(
   progress("envoi");
   const sent: string[] = [];
   try {
-    // allSettled : tous les envois sont terminés avant le nettoyage, même si l'un d'eux échoue
-    const results = await Promise.allSettled(
-      photos.map(async (p) => {
-        const bytes = await read(p.id);
-        if (!bytes) throw new AnalyseError(`photo introuvable (${p.step})`);
-        const ext = p.mime === "image/webp" ? "webp" : "jpg";
-        const meta = await client.files.upload({
-          file: new File([bytes], `${p.step}.${ext}`, { type: p.mime }),
-          expires_in_seconds: 3600,
-        });
-        sent.push(meta.id);
-        return { ...p, file: meta.id };
-      }),
-    );
+    // trois envois à la fois (mémoire du Worker : 128 Mo, photos jusqu'à 5 Mo) ; allSettled : tous terminés avant
+    // le nettoyage, même si l'un d'eux échoue
+    const upload = async (p: PhotoRef) => {
+      const bytes = await read(p.id);
+      if (!bytes) throw new AnalyseError(`photo introuvable (${p.step})`);
+      const ext = p.mime === "image/webp" ? "webp" : "jpg";
+      const meta = await client.files.upload({
+        file: new File([bytes], `${p.step}.${ext}`, { type: p.mime }),
+        expires_in_seconds: 3600,
+      });
+      sent.push(meta.id);
+      return { ...p, file: meta.id };
+    };
+    const results: PromiseSettledResult<PhotoRef & { file: string }>[] = [];
+    for (let i = 0; i < photos.length && !results.some((r) => r.status === "rejected"); i += 3)
+      results.push(...(await Promise.allSettled(photos.slice(i, i + 3).map(upload))));
     const uploaded = results.map((r, i) => {
       if (r.status === "fulfilled") return r.value;
       if (r.reason instanceof AnalyseError) throw r.reason;
@@ -385,7 +425,7 @@ export async function askClaude(
     progress("analyse");
     const content = [
       ...uploaded.flatMap((p, i) => [
-        { type: "text" as const, text: `Photo ${i + 1} : ${STEP_LABEL(p.step)}` },
+        { type: "text" as const, text: `Photo ${String(i + 1)}${STEP_LABEL(p.step)}` },
         { type: "image" as const, source: { type: "file" as const, file_id: p.file } },
       ]),
       { type: "text" as const, text: "Relève l'état de cette carte dans le format demandé." },

@@ -1,13 +1,5 @@
-// Fausse caméra pour les tests du scanner : une carte (63 × 88, coins arrondis, légèrement tournée) sur un tapis
-// sombre, recto puis verso, en vidéo Y4M (lue en boucle par Chromium) et en image BMP (photo « appareil photo »).
-// Générées avant les tests.
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-
-// dans le projet (dossier ignoré par git), pas dans le dossier temporaire partagé du système
-export const FAKE_CAMERA = fileURLToPath(new URL("../.wrangler/fake-camera/camera.y4m", import.meta.url));
-
+// Images de test : une carte (63 × 88, coins arrondis, légèrement tournée) sur un tapis sombre, recto ou verso, en
+// BMP (photo « prise » ou « choisie » dans les tests des photos et de la pré-évaluation).
 /**
  * Luminance (0-255) de la scène : carte texturée, bordure unie, tapis sombre ; anticrénelée. Recto : bordure claire,
  * damier et disque sombre en haut ; verso : bordure grise, rayures et disque clair en bas (empreinte différente).
@@ -68,22 +60,4 @@ export function cardBmp(w = 600, h = 800, face: "recto" | "verso" = "recto"): Bu
       buf.fill(v, 54 + y * row + x * 3, 54 + y * row + x * 3 + 3);
     }
   return buf;
-}
-
-/**
- * Vidéo Y4M (4:2:0, chrominance neutre, 10 images/s) lue en boucle : la carte immobile, recto pendant 3 s puis verso
- * pendant 3 s (le scanner prend une face, puis l'autre quand la carte « est retournée »).
- */
-export default function globalSetup(): void {
-  const [w, h] = [480, 640];
-  const chroma = Buffer.alloc((w / 2) * (h / 2) * 2, 128);
-  const frame = (face: "recto" | "verso") =>
-    Buffer.concat([Buffer.from("FRAME\n"), Buffer.from(scene(w, h, face)), chroma]);
-  const [recto, verso] = [frame("recto"), frame("verso")];
-  const header = Buffer.from(`YUV4MPEG2 W${w} H${h} F10:1 Ip A1:1 C420jpeg\n`);
-  mkdirSync(dirname(FAKE_CAMERA), { recursive: true });
-  writeFileSync(
-    FAKE_CAMERA,
-    Buffer.concat([header, ...Array.from({ length: 30 }, () => recto), ...Array.from({ length: 30 }, () => verso)]),
-  );
 }

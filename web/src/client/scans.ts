@@ -3,7 +3,7 @@
 import { analysisBlock, type Analyse, type ClaudeStatus } from "./analysis";
 import { api, type Species } from "./api";
 import { $, $as, action, h, toast } from "./dom";
-import { openScanner, scanSteps } from "./scanner";
+import { openScanner } from "./scanner";
 
 interface PhotoMeta {
   id: string;
@@ -21,10 +21,34 @@ interface Scans {
   claude: ClaudeStatus;
 }
 
-const STEPS = scanSteps(true);
+const SIDE: Record<string, string> = { recto: "Recto", verso: "Verso" };
+const PART: Record<string, string> = {
+  hg: "coin haut gauche",
+  hd: "coin haut droit",
+  bd: "coin bas droit",
+  bg: "coin bas gauche",
+  h: "bord du haut",
+  d: "bord droit",
+  b: "bord du bas",
+  g: "bord gauche",
+};
+/** Étapes du scanner précédent (anciens scans) : vue entière, coins puis bords, recto puis verso. */
+const LEGACY = ["recto", "verso"].flatMap((f) => [f, ...Object.keys(PART).map((p) => `${f}-${p}`)]);
+const photoNum = (step: string) => /^photo-(\d+)$/.exec(step)?.[1];
+/** Libellé d'une photo : « Photo 3 », ou l'étape d'un ancien scan (« Recto · coin haut gauche »). */
+const label = (step: string) => {
+  const n = photoNum(step);
+  if (n) return `Photo ${n}`;
+  const [face = "", part] = step.split("-");
+  return part ? `${SIDE[face] ?? face} · ${PART[part] ?? part}` : `${SIDE[face] ?? face} entier`;
+};
+const order = (step: string) => {
+  const n = photoNum(step);
+  return n ? 100 + Number(n) : LEGACY.indexOf(step);
+};
 const day = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
-const ORDER = new Map(STEPS.map((s, i) => [s.id, i]));
-const LABEL = new Map(STEPS.map((s) => [s.id, s.label]));
+/** Pré-évaluation à lancer dès le prochain affichage (photos enregistrées avec « Enregistrer et pré-évaluer »). */
+let autorun = false;
 /** Scans par espèce, lus une fois puis gardés jusqu'au prochain scan, analyse ou suppression. */
 const cache = new Map<number, Promise<Scans>>();
 
@@ -42,8 +66,7 @@ function load(num: number): Promise<Scans> {
   return p;
 }
 
-const sorted = (photos: PhotoMeta[]) =>
-  [...photos].sort((a, b) => (ORDER.get(a.step) ?? 99) - (ORDER.get(b.step) ?? 99));
+const sorted = (photos: PhotoMeta[]) => [...photos].sort((a, b) => order(a.step) - order(b.step));
 
 // --- visionneuse ---------------------------------------------------------------------------------------------------
 
@@ -56,8 +79,8 @@ function showPhoto(i: number): void {
   if (!p) return;
   const img = $as("pv-img", HTMLImageElement);
   img.src = `/api/photos/${p.id}`;
-  img.alt = LABEL.get(p.step) ?? p.step;
-  $("pv-cap").textContent = `${LABEL.get(p.step) ?? p.step} (${at + 1}/${viewing.length})`;
+  img.alt = label(p.step);
+  $("pv-cap").textContent = `${label(p.step)} (${at + 1}/${viewing.length})`;
 }
 
 export function initPhotoViewer(): void {
@@ -88,7 +111,7 @@ function gallery(scan: ScanMeta): HTMLElement {
           "button",
           {
             type: "button",
-            "aria-label": `Agrandir : ${LABEL.get(p.step) ?? p.step}`,
+            "aria-label": `Agrandir : ${label(p.step)}`,
             onclick: () => {
               viewing = photos;
               $as("photo-view", HTMLDialogElement).showModal();
@@ -105,7 +128,11 @@ function gallery(scan: ScanMeta): HTMLElement {
 function render(s: Species, { scans, claude }: Scans, changed: () => void): Node[] {
   if (!scans.length)
     return [
-      h("p", { class: "mut" }, "Aucune photo : deux suffisent, le recto puis le verso (coins découpés tout seuls)."),
+      h(
+        "p",
+        { class: "mut" },
+        "Aucune photo : le recto et le verso entiers, plus des gros plans si tu veux ; Claude fait le reste.",
+      ),
     ];
   const remove = (scan: ScanMeta) =>
     h(
@@ -135,10 +162,15 @@ function render(s: Species, { scans, claude }: Scans, changed: () => void): Node
       remove(last),
     ),
     gallery(last),
-    analysisBlock(last, claude, () => {
-      cache.delete(s.num);
-      changed();
-    }),
+    analysisBlock(
+      last,
+      claude,
+      () => {
+        cache.delete(s.num);
+        changed();
+      },
+      autorun && !(autorun = false),
+    ),
     older.length
       ? h(
           "details",
@@ -166,8 +198,10 @@ function render(s: Species, { scans, claude }: Scans, changed: () => void): Node
 export function scansBlock(s: Species, changed: () => void): HTMLElement | null {
   if (!s.owned) return null;
   const list = h("div", { class: "scan-list" }, h("p", { class: "mut" }, "Chargement des photos…"));
+  let claude: ClaudeStatus | null = null;
   load(s.num)
     .then((data) => {
+      claude = data.claude;
       list.replaceChildren(...render(s, data, changed));
     })
     .catch(() => {
@@ -186,14 +220,16 @@ export function scansBlock(s: Species, changed: () => void): HTMLElement | null 
           type: "button",
           class: "primary",
           onclick: () => {
-            // en série, d'autres cartes peuvent être scannées : leur cache est oublié aussi
-            openScanner(s, (num) => {
+            // en série, d'autres cartes reçoivent des photos : leur cache est oublié aussi
+            openScanner(s, claude, (num, analyse) => {
               cache.delete(num);
-              if (num === s.num) changed();
+              if (num !== s.num) return;
+              autorun = analyse;
+              changed();
             });
           },
         },
-        "📷 Scanner la carte",
+        "📷 Ajouter des photos",
       ),
     ),
     list,

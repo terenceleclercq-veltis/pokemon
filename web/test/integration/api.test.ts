@@ -151,6 +151,8 @@ describe("scanner : scans et photos", () => {
     expect((await put(id, "recto", new Uint8Array([1, 2, 3, 4]))).status).toBe(400);
     expect((await put(id, "recto", jpeg(), "image/webp")).status).toBe(400);
     expect((await put(id, "recto-xx", jpeg())).status).toBe(400);
+    for (const step of ["photo-0", "photo-21", "photo-x"]) expect((await put(id, step, jpeg())).status).toBe(400);
+    expect((await put(id, "photo-20", jpeg())).status).toBe(201);
     expect((await put(id, "recto", jpeg(), "image/jpeg", "w=0&h=10")).status).toBe(400);
     expect((await put(id, "recto", jpeg(), "image/jpeg", "w=10&h=10&quad=%5B1%2C2%5D")).status).toBe(400);
     expect((await put(crypto.randomUUID(), "recto", jpeg())).status).toBe(404);
@@ -177,14 +179,9 @@ describe("scanner : scans et photos", () => {
 
 describe("pré-évaluation PSA par Claude", () => {
   const jpeg = () => new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
-  const STEPS = [
-    "recto",
-    "verso",
-    ...["recto", "verso"].flatMap((f) => ["hg", "hd", "bd", "bg"].map((c) => `${f}-${c}`)),
-  ];
-  const face = (lr: number, tb: number) => ({ gauche: 3, droite: 3.2, haut: 3, bas: 3, lr, tb, sure: true });
-  const centrage = { recto: face(51.6, 50), verso: face(53, 52) };
-  /** Scan d'une carte possédée, avec les photos demandées (toutes les étapes requises par défaut). */
+  /** Quatre photos libres : vues entières et gros plans, Claude les trie. */
+  const STEPS = ["photo-1", "photo-2", "photo-3", "photo-4"];
+  /** Scan d'une carte possédée, avec les photos demandées. */
   async function scanWith(steps = STEPS) {
     await call("/api/species/1/owned", { method: "PUT", json: { card_id: "sv03.5-166" } });
     const { id } = await (await call("/api/species/1/scans", { method: "POST" })).json<{ id: string }>();
@@ -196,8 +193,7 @@ describe("pré-évaluation PSA par Claude", () => {
       });
     return id;
   }
-  const analyse = (id: string, json: unknown = { centrage }) =>
-    call(`/api/scans/${id}/analyses`, { method: "POST", json });
+  const analyse = (id: string, json: unknown = {}) => call(`/api/scans/${id}/analyses`, { method: "POST", json });
   const lines = async (r: Response) =>
     (await r.text())
       .split("\n")
@@ -216,8 +212,8 @@ describe("pré-évaluation PSA par Claude", () => {
     expect(r.headers.get("Cache-Control")).toBe("no-store");
     const out = await lines(r);
     expect(out.slice(0, 2)).toEqual([
-      { etape: "envoi", photos: 10 },
-      { etape: "analyse", photos: 10 },
+      { etape: "envoi", photos: 4 },
+      { etape: "analyse", photos: 4 },
     ]);
     const result = out.at(-1)?.analyse as Record<string, unknown>;
     expect(result).toMatchObject({
@@ -228,7 +224,7 @@ describe("pré-évaluation PSA par Claude", () => {
       raisons: { limites: [], incertains: [] },
       cout_usd: 0.2,
       constats: PERFECT,
-      centrage,
+      centrage: null,
       note_psa: null,
     });
     // échange de jeton : assertion signée par le Worker, identifiants de la console
@@ -242,16 +238,16 @@ describe("pré-évaluation PSA par Claude", () => {
       workspace_id: "wrkspc_test",
     });
     expect(decode(body.assertion!)).toMatchObject({ sub: "pokedex-kanto:test", aud: "https://api.anthropic.com" });
-    // photos : 10 envois (expiration 1 h), 10 suppressions ; message authentifié par le jeton fédéré
+    // photos : 4 envois (expiration 1 h), 4 suppressions ; message authentifié par le jeton fédéré
     const uploads = api.calls.filter((c) => c.path === "/v1/files" && c.method === "POST");
     expect(uploads.map((c) => (c.body as { name: string }).name)).toEqual(STEPS.map((st) => `${st}.jpg`));
     expect(uploads[0]?.body).toMatchObject({ type: "image/jpeg", expires: "3600" });
-    expect(api.calls.filter((c) => c.method === "DELETE")).toHaveLength(10);
+    expect(api.calls.filter((c) => c.method === "DELETE")).toHaveLength(4);
     const msg = api.calls.find((c) => c.path === "/v1/messages")!;
     expect(msg.headers.get("Authorization")).toBe("Bearer sk-ant-oat01-test");
     const sent = msg.body as { model: string; messages: { content: { type: string }[] }[] };
     expect(sent.model).toBe("claude-opus-5-5");
-    expect(sent.messages[0]?.content.filter((b) => b.type === "image")).toHaveLength(10);
+    expect(sent.messages[0]?.content.filter((b) => b.type === "image")).toHaveLength(4);
     // historique : l'analyse est rendue avec le scan, avec l'état du quota du jour
     const list = await (
       await call("/api/species/1/scans")
@@ -265,22 +261,19 @@ describe("pré-évaluation PSA par Claude", () => {
   it("refus avant tout appel : non configurée, scan incomplet ou inconnu, corps invalide, quota, déjà en cours", async () => {
     const api = anthropicApi();
     mockOutbound({}, api.handler);
-    const partial = await scanWith(["recto", "verso", "recto-hg"]);
+    const partial = await scanWith(["photo-1"]);
     const missing = await analyse(partial);
     expect(missing.status).toBe(409);
-    expect(await missing.json()).toEqual({
-      error: "scan incomplet : il manque recto-hd, recto-bd, recto-bg, verso-hg, verso-hd, verso-bd, verso-bg",
-    });
+    expect(await missing.json()).toEqual({ error: "il faut au moins 2 photos : le recto et le verso entiers" });
     const id = await scanWith();
     const off = await call(`/api/scans/${id}/analyses`, {
       method: "POST",
-      json: { centrage },
+      json: {},
       vars: { CLAUDE_FEDERATION_RULE_ID: "" },
     });
     expect(off.status).toBe(409);
     expect((await analyse(crypto.randomUUID())).status).toBe(404);
-    expect((await analyse(id, {})).status).toBe(400);
-    expect((await analyse(id, { centrage: { recto: { ...face(51, 50), lr: 40 }, verso: null } })).status).toBe(400);
+    expect((await analyse(id, { photos: 3 })).status).toBe(400);
     // une analyse récente en cours bloque ; une analyse « en cours » de plus de 10 min est interrompue
     const insert = (state: string, at: Date) =>
       env.DB.prepare("INSERT INTO analyse (id, scan_id, created_at, state, model) VALUES (?, ?, ?, ?, 'm')")
@@ -305,18 +298,20 @@ describe("pré-évaluation PSA par Claude", () => {
     expect(api.calls).toEqual([]);
   });
 
-  it("carte coupée sur la photo : coins enregistrés, la mesure cède la place à l'œil, centrage à confirmer", async () => {
-    mockOutbound({}, anthropicApi().handler);
-    const id = await scanWith();
-    const recto = { ...face(56.3, 70), bas: 1.2, sure: false, coupe: ["bd", "bg"] };
-    expect((await analyse(id, { centrage: { recto: { ...recto, coupe: ["x"] }, verso: null } })).status).toBe(400);
-    const result = (await lines(await analyse(id, { centrage: { ...centrage, recto } }))).at(-1)?.analyse;
-    expect(result).toMatchObject({
-      verdict: "candidat_10",
-      plafond: 10,
-      raisons: { limites: [], incertains: ["centrage du recto (à l'œil : bon ; mesure sur image rognée : 70/30)"] },
-      centrage: { recto },
-    });
+  it("ancien client : centrage mesuré dans le navigateur, accepté mais ignoré (Claude mesure les bordures)", async () => {
+    const api = anthropicApi();
+    mockOutbound({}, api.handler);
+    // ancien scan : étapes du scanner précédent, légendées pour Claude
+    const id = await scanWith(["recto", "verso", "recto-hg"]);
+    const old = { recto: { gauche: 2, droite: 4, haut: 3, bas: 3, lr: 66.7, tb: 50, sure: true }, verso: null };
+    const result = (await lines(await analyse(id, { centrage: old }))).at(-1)?.analyse;
+    expect(result).toMatchObject({ verdict: "candidat_10", plafond: 10, centrage: null });
+    const msg = api.calls.find((c) => c.path === "/v1/messages")!;
+    const texts = (
+      msg.body as { messages: { content: { type: string; text?: string }[] }[] }
+    ).messages[0]!.content.filter((b) => b.type === "text").map((b) => b.text);
+    expect(texts[0]).toBe("Photo 1 : recto entier, redressé (63 × 88 mm, 20 pixels par mm)");
+    expect(texts[2]).toBe("Photo 3 : recto, gros plan du coin haut gauche");
   });
 
   it("format imposé refusé par Anthropic (grammaire trop lourde) : repli sans format imposé, analyse réussie", async () => {
@@ -341,7 +336,7 @@ describe("pré-évaluation PSA par Claude", () => {
       state: "echec",
       erreur: reason,
     });
-    expect(api.calls.filter((c) => c.method === "DELETE")).toHaveLength(10);
+    expect(api.calls.filter((c) => c.method === "DELETE")).toHaveLength(4);
   });
 
   it("note PSA obtenue : demi-points, effaçable ; refus sur une analyse inconnue", async () => {
