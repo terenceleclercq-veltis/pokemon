@@ -58,8 +58,11 @@ export const budgetBody = z.strictObject({
 });
 /** Vitrine : jusqu'à 5 de tes cartes exposées dans les protections aimantées, dans l'ordre d'ajout. */
 export const vitrineBody = z.strictObject({ cards: z.array(cardId).check(z.maxLength(5)) });
-/** Scanner : vue entière (recto, verso) ou gros plan d'un coin (hg, hd, bd, bg) ou d'un bord (h, d, b, g). */
-export const scanStep = z.string().check(z.regex(/^(recto|verso)(-(hg|hd|bd|bg|h|d|b|g))?$/));
+/**
+ * Photo d'un scan : photo libre « photo-1 » à « photo-20 » ; ou, pour les scans du scanner précédent, vue entière
+ * (recto, verso) ou gros plan d'un coin (hg, hd, bd, bg) ou d'un bord (h, d, b, g).
+ */
+export const scanStep = z.string().check(z.regex(/^((recto|verso)(-(hg|hd|bd|bg|h|d|b|g))?|photo-([1-9]|1\d|20))$/));
 const uuid = z.string().check(z.regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/));
 export const scanParam = z.object({ id: uuid });
 export const photoParam = z.object({ id: uuid, step: scanStep });

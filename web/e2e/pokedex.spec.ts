@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
-import { cardBmp } from "./fake-camera";
+import { cardBmp } from "./images";
 
 /** Prix et images simulés : aucune dépendance réseau (TCGdex, GitHub) pendant les tests navigateur. */
 async function mockOutbound(page: Page) {
@@ -592,9 +592,7 @@ test("vitrine : ta carte depuis sa fiche, au-dessus du classeur ; un clic rouvre
   await page.request.delete("/api/species/12/owned", { headers });
 });
 
-test("scanner : recto et verso pris seuls, coins ajustés, gros plans découpés, carte suivante en série", async ({
-  page,
-}) => {
+test("photos de la carte : choisies librement, retirées, enregistrées ; carte suivante en série", async ({ page }) => {
   const headers = { "X-Requested-With": "pokedex" };
   const dex = (await (await page.request.get("/api/pokedex")).json()) as {
     species: { num: number; cards: { id: string }[] }[];
@@ -605,59 +603,46 @@ test("scanner : recto et verso pris seuls, coins ajustés, gros plans découpés
   }
   await page.goto("/#p=7");
   const dlg = page.locator("#detail");
-  await dlg.getByRole("button", { name: "📷 Scanner la carte" }).click();
+  await dlg.getByRole("button", { name: "📷 Ajouter des photos" }).click();
   const scan = page.locator("#scan");
-  const step = page.locator("#scan-step");
-  // pas d'écran d'accueil : la caméra démarre sur le recto
-  await expect(step).toContainText("recto (1/2)");
-  // la fausse caméra montre le recto puis le verso, en boucle : les deux faces partent seules, puis vérification
-  await expect(scan.locator("#scan-review")).toBeVisible({ timeout: 30_000 });
-  await expect(scan.locator(".scan-face img")).toHaveCount(2);
-  await expect(scan.locator(".scan-q").first()).toContainText("px/mm");
-  await scan.getByText("Gros plans des coins (découpés automatiquement)").click();
-  await expect(scan.locator("#scan-crops img")).toHaveCount(8);
-  // coins du recto ajustés au clavier (loupe affichée), puis validés : la face est refaite
-  await scan.locator(".scan-face").first().getByRole("button", { name: "Ajuster les coins" }).click();
-  await scan.getByRole("button", { name: /^Coin haut gauche de la carte/ }).focus();
-  await expect(scan.locator(".qe-loupe")).toBeVisible();
-  await page.keyboard.press("ArrowLeft");
-  await page.keyboard.press("ArrowUp");
-  await scan.getByRole("button", { name: "Valider" }).click();
-  await expect(scan.locator("#scan-review")).toBeVisible();
-  // verso repris avec l'appareil photo du téléphone (fichier) : même traitement
-  await scan.locator(".scan-face").nth(1).getByRole("button", { name: "Reprendre" }).click();
-  await expect(step).toContainText("verso à refaire");
+  await expect(page.locator("#scan-step")).toHaveText("Carapuce");
+  await expect(scan.getByRole("button", { name: "Enregistrer seulement" })).toBeDisabled();
+  // appareil photo ou photothèque du téléphone : plusieurs photos d'un coup
   const chooser = page.waitForEvent("filechooser");
-  await scan.getByRole("button", { name: "Appareil photo" }).click();
-  await (await chooser).setFiles({ name: "verso.bmp", mimeType: "image/bmp", buffer: cardBmp(600, 800, "verso") });
-  await expect(scan.locator("#scan-review")).toBeVisible();
-  // envoi : 2 vues entières et 8 gros plans ; en série, la carte suivante du binder sans scan est proposée
-  await scan.getByRole("button", { name: "Enregistrer le scan" }).click();
-  await expect(page.locator("#scan-done-msg")).toHaveText(/scan enregistré \(10 photos\)/);
-  await expect(scan.getByRole("button", { name: /^Scanner #008/ })).toBeVisible();
-  await scan.getByRole("button", { name: "Terminer" }).click();
+  await scan.getByRole("button", { name: "📷 Prendre ou choisir des photos" }).click();
+  await (
+    await chooser
+  ).setFiles([
+    { name: "recto.bmp", mimeType: "image/bmp", buffer: cardBmp(600, 800, "recto") },
+    { name: "verso.bmp", mimeType: "image/bmp", buffer: cardBmp(600, 800, "verso") },
+    { name: "coin.bmp", mimeType: "image/bmp", buffer: cardBmp(400, 400, "recto") },
+  ]);
+  await expect(scan.locator("#scan-photos img")).toHaveCount(3);
+  await expect(page.locator("#scan-status")).toHaveText("3 photos.");
+  await scan.getByRole("button", { name: "Retirer la photo 3" }).click();
+  await expect(scan.locator("#scan-photos img")).toHaveCount(2);
+  // Claude n'est pas configuré en local : enregistrement seul
+  await expect(scan.getByRole("button", { name: "Enregistrer et pré-évaluer" })).toBeDisabled();
+  await scan.getByRole("button", { name: "Enregistrer seulement" }).click();
+  await expect(page.locator("#scan-done-msg")).toHaveText("✓ Carapuce : 2 photos enregistrées.");
+  // en série : la carte suivante du binder sans photos
+  await scan.getByRole("button", { name: /^Photos de #008/ }).click();
+  await expect(page.locator("#scan-step")).toHaveText("Carabaffe");
+  await expect(scan.locator("#scan-photos img")).toHaveCount(0);
+  await scan.getByRole("button", { name: "Fermer", exact: true }).click();
   await expect(scan).toBeHidden();
-  await expect(dlg.locator(".scan-meta").first()).toContainText("10 photos");
-  // vues redressées au format carte (20 px/mm), avec la couleur du fond ; gros plans carrés de 15 mm
+  await expect(dlg.locator(".scan-meta").first()).toContainText("2 photos");
+  // photos libres, gardées à leur définition (2576 px de côté au plus)
   const { scans } = (await (await page.request.get("/api/species/7/scans")).json()) as {
-    scans: { photos: { step: string; width: number; height: number; fond: number[] | null }[] }[];
+    scans: { photos: { step: string; width: number; height: number }[] }[];
   };
-  const photos = scans[0]?.photos ?? [];
-  expect(photos.map((p) => p.step).sort()).toEqual(
-    ["recto", "verso"].flatMap((f) => [f, ...["hg", "hd", "bd", "bg"].map((c) => `${f}-${c}`)]).sort(),
-  );
-  for (const f of ["recto", "verso"]) {
-    const view = photos.find((p) => p.step === f);
-    expect([view?.width, view?.height, view?.fond?.length]).toEqual([1260, 1760, 3]);
-    const crop = photos.find((p) => p.step === `${f}-hg`);
-    expect(crop?.width).toBe(crop?.height);
-    expect(crop?.fond).toBeNull();
-  }
+  expect(scans[0]?.photos.map((p) => [p.step, p.width, p.height])).toEqual([
+    ["photo-1", 600, 800],
+    ["photo-2", 600, 800],
+  ]);
   // visionneuse
   await dlg.locator(".scan-thumbs button").first().click();
-  await expect(page.locator("#pv-cap")).toHaveText("Recto entier (1/10)");
-  await page.locator("#photo-view").getByRole("button", { name: "Photo suivante" }).click();
-  await expect(page.locator("#pv-cap")).toHaveText("Recto · coin haut gauche (2/10)");
+  await expect(page.locator("#pv-cap")).toHaveText("Photo 1 (1/2)");
   await page.locator("#photo-view").getByRole("button", { name: "Fermer la photo" }).click();
   // suppression
   page.once("dialog", (d) => void d.accept());
@@ -667,26 +652,23 @@ test("scanner : recto et verso pris seuls, coins ajustés, gros plans découpés
   for (const num of [7, 8]) await page.request.delete(`/api/species/${String(num)}/owned`, { headers });
 });
 
-test("pré-évaluation PSA : centrage mesuré, analyse en flux, verdict et note obtenue", async ({ page }) => {
+test("pré-évaluation PSA : analyse en flux, centrage mesuré par Claude, photos à ajouter, note obtenue", async ({
+  page,
+}) => {
   const headers = { "X-Requested-With": "pokedex" };
   const dex = (await (await page.request.get("/api/pokedex")).json()) as {
     species: { num: number; cards: { id: string }[] }[];
   };
   const card = dex.species.find((x) => x.num === 9)?.cards[0]?.id ?? "";
   await page.request.put("/api/species/9/owned", { headers, data: { card_id: card } });
-  // scan complet et réponses de Claude simulés (l'analyse réelle est couverte par les tests d'intégration)
+  // photos et réponses de Claude simulées (l'analyse réelle est couverte par les tests d'intégration)
   const scan = "11111111-1111-4111-8111-111111111111";
-  const steps = [
-    "recto",
-    "verso",
-    ...["recto", "verso"].flatMap((f) => ["hg", "hd", "bd", "bg"].map((c) => `${f}-${c}`)),
-  ];
-  const photos = steps.map((step, i) => ({
-    id: `22222222-2222-4222-8222-${String(i).padStart(12, "0")}`,
-    step,
-    width: 1260,
-    height: 1760,
-    sharpness: 900,
+  const photos = [1, 2, 3, 4].map((n) => ({
+    id: `22222222-2222-4222-8222-${String(n).padStart(12, "0")}`,
+    step: `photo-${String(n)}`,
+    width: 1932,
+    height: 2576,
+    sharpness: null,
   }));
   const corner = { etat: "parfait", confiance: "elevee", detail: "" };
   const edge = { blanchiment: "aucun", confiance: "elevee", detail: "" };
@@ -698,9 +680,15 @@ test("pré-évaluation PSA : centrage mesuré, analyse en flux, verdict et note 
     finished_at: new Date().toISOString(),
     state: "terminee",
     model: "claude-opus-5-5",
-    centrage: { recto: { gauche: 2.9, droite: 3.3, haut: 3, bas: 3.1, lr: 53.2, tb: 50.8, sure: true }, verso: null },
+    centrage: null,
     constats: {
       qualite_photos: { exploitable: true, problemes: [] },
+      photos: [
+        { numero: 1, contenu: "recto entier" },
+        { numero: 2, contenu: "verso entier, de biais" },
+        { numero: 3, contenu: "gros plan du coin haut droit du verso" },
+        { numero: 4, contenu: "gros plan du coin bas gauche du recto" },
+      ],
       coins: {
         recto: corners,
         verso: { ...corners, hd: { etat: "leger", confiance: "moyenne", detail: "point blanc" } },
@@ -710,12 +698,19 @@ test("pré-évaluation PSA : centrage mesuré, analyse en flux, verdict et note 
         recto: { gravite: "aucune", defauts: [], confiance: "elevee" },
         verso: { gravite: "aucune", defauts: [], confiance: "moyenne" },
       },
-      centrage_visuel: { recto: "bon", verso: "bon" },
+      centrage: {
+        recto: { photo: 1, gauche: 104, droite: 96, haut: 120, bas: 120, confiance: "elevee", detail: "" },
+        verso: { photo: 0, gauche: 0, droite: 0, haut: 0, bas: 0, confiance: "faible", detail: "verso pris de biais" },
+      },
+      a_prendre: ["verso entier pris bien de face"],
       resume: "Très belle carte ; un point blanc au coin haut droit du verso.",
     },
     verdict: "probable_9",
     plafond: 9,
-    raisons: { limites: ["coin haut droit du verso (léger)"], incertains: ["centrage du verso (à l'œil : bon)"] },
+    raisons: {
+      limites: ["coin haut droit du verso (léger)"],
+      incertains: ["centrage du verso (non mesurable sur les photos)"],
+    },
     cout_usd: 0.21,
     erreur: null,
     note_psa: null,
@@ -723,27 +718,34 @@ test("pré-évaluation PSA : centrage mesuré, analyse en flux, verdict et note 
   let analysed = false;
   let sent: unknown;
   let psa: unknown;
+  // lectures simulées ; les envois de photos vont au vrai Worker local
   await page.route("**/api/species/9/scans", (route) =>
-    route.fulfill({
-      json: {
-        scans: [
-          {
-            id: scan,
-            card_id: card,
-            created_at: new Date().toISOString(),
-            photos,
-            analyses: analysed ? [analysis] : [],
+    route.request().method() !== "GET"
+      ? route.continue()
+      : route.fulfill({
+          json: {
+            scans: [
+              {
+                id: scan,
+                card_id: card,
+                created_at: new Date().toISOString(),
+                photos,
+                analyses: analysed ? [analysis] : [],
+              },
+            ],
+            claude: { configured: true, model: "claude-opus-5-5", par_jour: 10, restantes: analysed ? 8 : 9 },
           },
-        ],
-        claude: { configured: true, model: "claude-opus-5-5", par_jour: 10, restantes: analysed ? 8 : 9 },
-      },
-    }),
+        }),
   );
-  await page.route("**/api/photos/**", (route) => route.fulfill({ contentType: "image/bmp", body: cardBmp(630, 880) }));
+  await page.route("**/api/photos/**", (route) =>
+    route.request().method() !== "GET"
+      ? route.continue()
+      : route.fulfill({ contentType: "image/bmp", body: cardBmp(630, 880) }),
+  );
   await page.route(`**/api/scans/${scan}/analyses`, async (route) => {
     sent = route.request().postDataJSON();
     analysed = true;
-    const lines = [{ etape: "envoi", photos: 10 }, { etape: "analyse", photos: 10 }, { analyse: analysis }];
+    const lines = [{ etape: "envoi", photos: 4 }, { etape: "analyse", photos: 4 }, { analyse: analysis }];
     await route.fulfill({
       contentType: "application/x-ndjson; charset=utf-8",
       body: lines.map((l) => JSON.stringify(l)).join("\n") + "\n",
@@ -756,16 +758,32 @@ test("pré-évaluation PSA : centrage mesuré, analyse en flux, verdict et note 
 
   await page.goto("/#p=9");
   const dlg = page.locator("#detail");
-  await expect(dlg.locator(".an-run")).toContainText("9 restantes aujourd'hui");
-  await dlg.getByRole("button", { name: "🔍 Pré-évaluer avec Claude" }).click();
-  await expect(page.locator(".toast")).toContainText("Pré-évaluation terminée.");
-  // centrage mesuré dans le navigateur sur les vues entières, envoyé avec la demande
-  expect(Object.keys((sent as { centrage: object }).centrage)).toEqual(["recto", "verso"]);
+  await expect(dlg.locator(".an-run")).toContainText("environ 0,17 $ pour 4 photos · 9 restantes aujourd'hui");
+  // nouvelles photos enregistrées avec « Enregistrer et pré-évaluer » : la pré-évaluation part d'elle-même
+  await dlg.getByRole("button", { name: "📷 Ajouter des photos" }).click();
+  const chooser = page.waitForEvent("filechooser");
+  await page.locator("#scan").getByRole("button", { name: "📷 Prendre ou choisir des photos" }).click();
+  await (
+    await chooser
+  ).setFiles([
+    { name: "recto.jpg", mimeType: "image/bmp", buffer: cardBmp(600, 800, "recto") },
+    { name: "verso.jpg", mimeType: "image/bmp", buffer: cardBmp(600, 800, "verso") },
+  ]);
+  await page.locator("#scan").getByRole("button", { name: "Enregistrer et pré-évaluer (≈ 0,13 $)" }).click();
+  await expect(page.locator("#scan")).toBeHidden();
+  await expect(page.locator(".toast").last()).toContainText("Pré-évaluation terminée.");
+  // rien à mesurer dans le navigateur : Claude trie les photos et mesure les bordures
+  expect(sent).toEqual({});
   const result = dlg.locator(".an-result");
   await expect(result.locator(".an-verdict")).toHaveText("Probable PSA 9 · note maximale plausible : 9");
   await expect(result).toContainText("Limité par : coin haut droit du verso (léger).");
-  await expect(result).toContainText("recto : 53,2/46,8 gauche-droite, 50,8/49,2 haut-bas");
-  await expect(result).toContainText("verso : non mesurable sur la photo (à l'œil : bon)");
+  await expect(result.locator(".an-more")).toContainText(
+    "Photos à ajouter pour conclure :verso entier pris bien de face",
+  );
+  await expect(result).toContainText("recto : 52/48 gauche-droite, 50/50 haut-bas (mesuré sur la photo 1");
+  await expect(result).toContainText("verso : non mesurable sur les photos (verso pris de biais)");
+  await result.getByText("Ce que montre chaque photo").click();
+  await expect(result.locator(".an-photos li").nth(2)).toHaveText("Photo 3 : gros plan du coin haut droit du verso");
   await expect(result.locator(".an-grid").first()).toContainText("léger");
   await expect(result.locator(".an-foot")).toContainText("Claude Opus 5.5");
   await expect(result.locator(".an-foot")).toContainText("0,21 $");

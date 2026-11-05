@@ -18,21 +18,18 @@ achats enregistrés). Prix payé et date d'achat dans « Ma carte » (dépenses 
 Statistiques : chiffres clés, budget mensuel avec report (le non-dépensé passe au mois suivant), graphique des
 dépenses avec le disponible de chaque mois, reste à payer détaillé. Illustrateur de chaque carte (relevé chez TCGdex avec le prix), affiché dans la fiche et la visionneuse : un clic, ou
 une recherche par son nom, montre les espèces dont une carte est de lui.
-Scanner de tes cartes (fiche d'une espèce au binder, « Scanner la carte »), inspiré des scanners de documents : deux
-photos, recto puis verso, prises toutes seules dès que l'image est stable (le verso quand la carte est retournée), à
-la meilleure définition de l'appareil (photo pleine définition quand le navigateur le permet, sinon la vidéo ; ou
-l'appareil photo du téléphone). La carte est repérée sur n'importe quel fond, son vrai bord retrouvé quand le contour
-passe à l'intérieur (bordure confondue avec le fond), et ses coins restent ajustables à la main, avec une loupe. Recto
-et verso sont redressés à plat (63 × 88 mm à 20 px/mm), les gros plans des quatre coins découpés dans la photo
-d'origine ; puis la carte suivante sans scan est proposée, pour scanner en série. Photos privées stockées dans R2,
-vignettes et visionneuse dans la fiche.
-Pré-évaluation PSA d'un scan complet (recto, verso, 8 coins) par Claude Opus 5.5 : le site mesure lui-même le centrage
-sur les vues redressées, Claude relève l'état des coins, des bords et de la surface (format imposé, confiance par
-constat) et donne son impression du centrage, et le verdict (« candidat PSA 10 », « probable 9 », « 8 ou moins »,
-« photos insuffisantes ») découle de règles fixes ; une mesure de centrage douteuse (image rognée, bordures
-irrégulières, ou nettement pire que l'impression de Claude) ne plafonne pas la note : l'impression de Claude la
-remplace, à confirmer. Coût affiché (~0,25 $), 10 analyses par jour au plus, note PSA réellement obtenue saisie pour
-mesurer la fiabilité. Indicatif : PSA examine la surface à la loupe.
+Photos de tes cartes (fiche d'une espèce au binder, « Ajouter des photos ») : autant de photos que tu veux, 20 au
+plus, prises avec l'appareil photo du téléphone (pleine qualité, zoom compris) ou choisies dans la photothèque. Rien à
+cadrer ni à détourer : le recto et le verso entiers, plus des gros plans des zones à vérifier. Photos gardées en
+2576 px de côté au plus (la définition qu'examine Claude), sans leurs métadonnées (position GPS comprise), stockées en
+privé dans R2 ; vignettes et visionneuse dans la fiche ; puis carte suivante sans photos, en série.
+Pré-évaluation PSA par Claude Opus 5.5 (« Enregistrer et pré-évaluer », ou plus tard depuis la fiche) : Claude trie
+les photos (vues entières, gros plans), relève l'état des coins, des bords et de la surface (format imposé, confiance
+par constat), mesure les bordures de chaque face en pixels sur la vue la plus droite, et dit quelles photos manquent
+pour conclure. Le verdict (« candidat PSA 10 », « probable 9 », « 8 ou moins », « photos insuffisantes ») découle de
+règles fixes, avec les tolérances de centrage de PSA. Coût estimé avant l'envoi (environ 0,13 $ pour 2 photos,
+0,48 $ pour 20), 10 analyses par jour au plus, note PSA réellement obtenue saisie pour mesurer la fiabilité.
+Indicatif : PSA examine la surface à la loupe.
 
 ## Pile technique et pourquoi
 

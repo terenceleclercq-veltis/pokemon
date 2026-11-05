@@ -103,13 +103,21 @@ const edge = { blanchiment: "aucun", confiance: "elevee", detail: "" } as const;
 const corners = { hg: corner, hd: corner, bd: corner, bg: corner };
 const edges = { h: edge, d: edge, b: edge, g: edge };
 const surface = { gravite: "aucune" as const, defauts: [] as string[], confiance: "elevee" as const };
+/** Bordures mesurées par Claude sur une vue entière (pixels) : centrage du recto 52/48, du verso 55/45. */
+const measured = (photo: number, gauche: number, droite: number) =>
+  ({ photo, gauche, droite, haut: 120, bas: 120, confiance: "elevee", detail: "" }) as const;
 /** Constats d'une carte sans défaut visible. */
 export const PERFECT: Findings = {
   qualite_photos: { exploitable: true, problemes: [] },
+  photos: [
+    { numero: 1, contenu: "recto entier" },
+    { numero: 2, contenu: "verso entier" },
+  ],
   coins: { recto: corners, verso: corners },
   bords: { recto: edges, verso: edges },
   surface: { recto: surface, verso: surface },
-  centrage_visuel: { recto: "bon", verso: "bon" },
+  centrage: { recto: measured(1, 130, 120), verso: measured(2, 110, 90) },
+  a_prendre: [],
   resume: "Carte en très bon état.",
 };
 
@@ -118,6 +126,7 @@ export function toReply(f: Findings): Reply {
   const faces = ["recto", "verso"] as const;
   return {
     qualite_photos: f.qualite_photos,
+    photos: f.photos,
     coins: faces.flatMap((face) =>
       (["hg", "hd", "bd", "bg"] as const).map((coin) => ({ face, coin, ...f.coins[face][coin] })),
     ),
@@ -125,7 +134,8 @@ export function toReply(f: Findings): Reply {
       (["h", "d", "b", "g"] as const).map((bord) => ({ face, bord, ...f.bords[face][bord] })),
     ),
     surface: faces.map((face) => ({ face, ...f.surface[face] })),
-    centrage_visuel: f.centrage_visuel,
+    centrage: faces.map((face) => ({ face, ...f.centrage[face] })),
+    a_prendre: f.a_prendre,
     resume: f.resume,
   };
 }

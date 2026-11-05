@@ -1,11 +1,30 @@
-// Pré-évaluation PSA d'un scan par Claude, dans la fiche : centrage mesuré ici (recto et verso redressés), constats de
-// Claude reçus en flux, verdict par règles fixes (serveur), note PSA réellement obtenue (fiabilité mesurée à terme).
+// Pré-évaluation PSA des photos d'une carte par Claude, dans la fiche : Claude trie les photos, relève l'état de la
+// carte et mesure les bordures (réponse en flux) ; verdict par règles fixes (serveur) ; note PSA réellement obtenue
+// (fiabilité mesurée à terme).
 import { api, ApiError } from "./api";
 import { action, h, toast } from "./dom";
-import { borders, type Borders } from "./vision";
 
-/** Centrage enregistré : les analyses faites avant la vérification des coins n'ont pas `coupe`. */
-type Measured = Omit<Borders, "coupe"> & { coupe?: Borders["coupe"] };
+/** Centrage mesuré par le scanner précédent (anciennes analyses seulement). */
+interface Measured {
+  gauche: number;
+  droite: number;
+  haut: number;
+  bas: number;
+  lr: number;
+  tb: number;
+  sure: boolean;
+  coupe?: ("hg" | "hd" | "bd" | "bg")[];
+}
+/** Bordures mesurées par Claude sur une vue entière (pixels de la photo ; photo 0 : aucune vue utilisable). */
+interface ClaudeBorders {
+  photo: number;
+  gauche: number;
+  droite: number;
+  haut: number;
+  bas: number;
+  confiance: Confidence;
+  detail: string;
+}
 
 type Corner = "parfait" | "leger" | "visible" | "important";
 type Edge = "aucun" | "leger" | "visible" | "important";
@@ -17,7 +36,12 @@ interface Findings {
   coins: FaceOf<Record<"hg" | "hd" | "bd" | "bg", { etat: Corner; confiance: Confidence; detail: string }>>;
   bords: FaceOf<Record<"h" | "d" | "b" | "g", { blanchiment: Edge; confiance: Confidence; detail: string }>>;
   surface: FaceOf<{ gravite: Surface; defauts: string[]; confiance: Confidence }>;
-  centrage_visuel: FaceOf<"bon" | "limite" | "decale">;
+  /** Analyses récentes : bordures mesurées par Claude, ce que montre chaque photo, photos à ajouter. */
+  centrage?: FaceOf<ClaudeBorders>;
+  photos?: { numero: number; contenu: string }[];
+  a_prendre?: string[];
+  /** Anciennes analyses : impression visuelle de Claude, à côté de la mesure du site. */
+  centrage_visuel?: FaceOf<"bon" | "limite" | "decale">;
   resume: string;
 }
 export interface Analyse {
@@ -44,16 +68,16 @@ interface Photo {
   id: string;
   step: string;
   width: number;
-  /** Couleur du fond autour de la carte, mesurée à la prise (scans récents). */
-  fond?: number[] | null;
 }
 
-/** Photos sans lesquelles Claude ne peut pas juger : recto, verso et les 8 coins. */
-const REQUIRED = [
-  "recto",
-  "verso",
-  ...["recto", "verso"].flatMap((f) => ["hg", "hd", "bd", "bg"].map((c) => `${f}-${c}`)),
-];
+/** Photos nécessaires (le recto et le verso entiers) ; au-delà de 20, les suivantes ne sont pas envoyées. */
+const MIN_PHOTOS = 2;
+const MAX_PHOTOS = 20;
+/**
+ * Coût estimé d'une analyse : jusqu'à ~4 800 jetons par photo en haute définition, ~3 000 jetons de consignes et de
+ * réponse réfléchie, aux tarifs d'Opus 5.5 (4 $ et 20 $ par million de jetons).
+ */
+export const estimate = (photos: number) => (Math.min(photos, MAX_PHOTOS) * 4800 + 3000) * 4e-6 + 4000 * 20e-6;
 
 const VERDICT = {
   candidat_10: "Candidat PSA 10",
@@ -87,24 +111,6 @@ const num = (v: number, digits = 1) => v.toLocaleString("fr-BE", { maximumFracti
 const usd = (v: number) => `${v.toLocaleString("fr-BE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
 const when = (iso: string) => new Date(iso).toLocaleString("fr-BE", { dateStyle: "short", timeStyle: "short" });
 
-// --- centrage ------------------------------------------------------------------------------------------------------
-
-/** Bordures d'une vue entière redressée (63 mm de large), mesurées sur la photo d'origine. */
-async function measure(photo: Photo | undefined): Promise<Borders | null> {
-  if (!photo) return null;
-  const img = new Image();
-  img.src = `/api/photos/${photo.id}`;
-  await img.decode();
-  const canvas = document.createElement("canvas");
-  canvas.width = img.naturalWidth;
-  canvas.height = img.naturalHeight;
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return null;
-  ctx.drawImage(img, 0, 0);
-  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  return borders(data, canvas.width, canvas.height, canvas.width / 63, photo.fond);
-}
-
 // --- écran allumé ----------------------------------------------------------------------------------------------------
 
 type Lock = { release(): Promise<void> };
@@ -122,8 +128,8 @@ async function keepAwake(): Promise<Lock | undefined> {
 
 type Progress = { etape: "envoi" | "analyse"; photos?: number; secondes?: number };
 
-async function run(scanId: string, centrage: FaceOf<Borders | null>, progress: (p: Progress) => void) {
-  const r = await api(`/api/scans/${scanId}/analyses`, { method: "POST", json: { centrage } });
+async function run(scanId: string, progress: (p: Progress) => void) {
+  const r = await api(`/api/scans/${scanId}/analyses`, { method: "POST", json: {} });
   const reader = r.body?.getReader();
   if (!reader) throw new ApiError("réponse vide", 0);
   const decoder = new TextDecoder();
@@ -178,11 +184,27 @@ function grid(
 }
 
 const CUT_NAME = { hg: "haut gauche", hd: "haut droit", bd: "bas droit", bg: "bas gauche" } as const;
+const LIMIT = { recto: "55/45", verso: "75/25" } as const;
+const pair = (v: number) => `${num(v)}/${num(100 - v)}`;
+const share = (a: number, b: number) => (100 * Math.max(a, b)) / (a + b);
 
-function centeringLine(face: "recto" | "verso", b: Measured | null, visual: string | undefined): HTMLElement {
-  const limit = face === "recto" ? "55/45" : "75/25";
+/** Centrage d'une face mesuré par Claude (bordures en pixels sur une vue entière). */
+function claudeCentering(face: "recto" | "verso", m: ClaudeBorders): HTMLElement {
+  if (!(m.photo > 0 && m.gauche + m.droite > 0 && m.haut + m.bas > 0))
+    return h("li", {}, `${face} : non mesurable sur les photos`, m.detail ? ` (${m.detail})` : "");
+  return h(
+    "li",
+    {},
+    `${face} : ${pair(share(m.gauche, m.droite))} gauche-droite, ${pair(share(m.haut, m.bas))} haut-bas`,
+    h("span", { class: "mut" }, ` (mesuré sur la photo ${String(m.photo)} ; PSA 10 jusqu'à ${LIMIT[face]})`),
+    m.confiance === "faible" ? h("span", { class: "sev sev-1" }, " mesure incertaine") : "",
+    m.detail ? h("span", { class: "mut" }, ` · ${m.detail}`) : "",
+  );
+}
+
+/** Ancienne analyse : centrage mesuré par le site sur la vue redressée, impression visuelle de Claude à côté. */
+function siteCentering(face: "recto" | "verso", b: Measured | null, visual: string | undefined): HTMLElement {
   if (!b) return h("li", {}, `${face} : non mesurable sur la photo`, visual ? ` (à l'œil : ${word(visual)})` : "");
-  const pair = (v: number) => `${num(v)}/${num(100 - v)}`;
   return h(
     "li",
     {},
@@ -190,7 +212,7 @@ function centeringLine(face: "recto" | "verso", b: Measured | null, visual: stri
     h(
       "span",
       { class: "mut" },
-      ` (bordures ${num(b.gauche)} · ${num(b.droite)} · ${num(b.haut)} · ${num(b.bas)} mm ; PSA 10 jusqu'à ${limit})`,
+      ` (bordures ${num(b.gauche)} · ${num(b.droite)} · ${num(b.haut)} · ${num(b.bas)} mm ; PSA 10 jusqu'à ${LIMIT[face]})`,
     ),
     b.coupe?.length
       ? h(
@@ -253,12 +275,23 @@ function result(a: Analyse, changed: () => void): HTMLElement {
     reasons.incertains.length
       ? h("p", { class: "mut" }, "À confirmer (zone peu nette) : ", reasons.incertains.join(" ; "), ".")
       : null,
-    h("h4", {}, "Centrage mesuré"),
+    f.a_prendre?.length
+      ? h(
+          "div",
+          { class: "an-more" },
+          h("p", {}, h("strong", {}, "Photos à ajouter pour conclure :")),
+          h("ul", {}, ...f.a_prendre.map((t) => h("li", {}, t))),
+        )
+      : null,
+    h("h4", {}, "Centrage"),
     h(
       "ul",
       { class: "an-list" },
-      centeringLine("recto", a.centrage?.recto ?? null, f.centrage_visuel.recto),
-      centeringLine("verso", a.centrage?.verso ?? null, f.centrage_visuel.verso),
+      ...(["recto", "verso"] as const).map((face) =>
+        f.centrage
+          ? claudeCentering(face, f.centrage[face])
+          : siteCentering(face, a.centrage?.[face] ?? null, f.centrage_visuel?.[face]),
+      ),
     ),
     grid(
       "Coins",
@@ -304,6 +337,18 @@ function result(a: Analyse, changed: () => void): HTMLElement {
     f.qualite_photos.problemes.length
       ? h("p", { class: "mut" }, "Photos : ", f.qualite_photos.problemes.join(" ; "), ".")
       : null,
+    f.photos?.length
+      ? h(
+          "details",
+          { "data-key": `photos-${a.id}` },
+          h("summary", {}, "Ce que montre chaque photo"),
+          h(
+            "ol",
+            { class: "an-photos" },
+            ...f.photos.map((p) => h("li", {}, `Photo ${String(p.numero)} : ${p.contenu}`)),
+          ),
+        )
+      : null,
     h("p", { class: "an-summary" }, f.resume),
     h(
       "p",
@@ -318,14 +363,18 @@ function result(a: Analyse, changed: () => void): HTMLElement {
 
 // --- bloc de la fiche ----------------------------------------------------------------------------------------------
 
-/** Pré-évaluation du dernier scan : bouton, avancement, dernier résultat, analyses précédentes. */
+/**
+ * Pré-évaluation du dernier scan : bouton, avancement, dernier résultat, analyses précédentes. `auto` : lancée tout de
+ * suite (photos enregistrées avec « Enregistrer et pré-évaluer »).
+ */
 export function analysisBlock(
   scan: { id: string; photos: Photo[]; analyses: Analyse[] },
   claude: ClaudeStatus,
   changed: () => void,
+  auto = false,
 ): HTMLElement {
   const [last, ...older] = scan.analyses;
-  const missing = REQUIRED.filter((s) => !scan.photos.some((p) => p.step === s));
+  const missing = scan.photos.length < MIN_PHOTOS;
   const status = h("p", { class: "mut", role: "status", "aria-live": "polite" });
   const running = last?.state === "en_cours";
   const btn = h(
@@ -336,11 +385,9 @@ export function analysisBlock(
         action(btn, async () => {
           const lock = await keepAwake();
           try {
-            status.textContent = "Mesure du centrage…";
-            const view = (step: string) => scan.photos.find((p) => p.step === step);
-            const centrage = { recto: await measure(view("recto")), verso: await measure(view("verso")) };
+            status.textContent = "Préparation…";
             const started = Date.now();
-            await run(scan.id, centrage, (p) => {
+            await run(scan.id, (p) => {
               const s = Math.round((Date.now() - started) / 1000);
               status.textContent =
                 p.etape === "envoi"
@@ -358,15 +405,21 @@ export function analysisBlock(
     },
     "🔍 Pré-évaluer avec Claude",
   );
-  btn.disabled = !claude.configured || missing.length > 0 || claude.restantes <= 0 || running;
+  btn.disabled = !claude.configured || missing || claude.restantes <= 0 || running;
+  const n = Math.min(scan.photos.length, MAX_PHOTOS);
   const note = !claude.configured
     ? "Pré-évaluation par Claude pas encore configurée (fédération d'identité, voir la documentation)."
-    : missing.length
-      ? "Pour la pré-évaluation, il faut un scan complet : recto, verso et les 8 coins."
+    : missing
+      ? "Pour la pré-évaluation, il faut au moins le recto et le verso entiers."
       : claude.restantes <= 0
         ? `Limite de ${String(claude.par_jour)} analyses atteinte aujourd'hui.`
-        : `${modelName(claude.model)}, environ 0,25 $ par analyse · ${String(claude.restantes)} restante${claude.restantes > 1 ? "s" : ""} aujourd'hui.`;
+        : `${modelName(claude.model)}, environ ${usd(estimate(n))} pour ${String(n)} photos · ${String(claude.restantes)} restante${claude.restantes > 1 ? "s" : ""} aujourd'hui.`;
   status.textContent = note;
+  // lancée d'office après l'enregistrement des photos, une seule fois
+  if (auto && !btn.disabled)
+    queueMicrotask(() => {
+      btn.click();
+    });
   return h(
     "div",
     { class: "analysis" },
